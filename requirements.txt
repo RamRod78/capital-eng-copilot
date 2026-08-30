@@ -7,3 +7,4 @@ pgvector>=0.2.5
 sqlalchemy>=2.0.30
 python-dotenv>=1.0.1
 pandas>=2.2.0
+pytest>=8.0.0

@@ -1,70 +1,149 @@
-import json
 import logging
-from typing import Optional
+from typing import List, Optional
+from uuid import uuid4
+
 from google import genai
 from google.genai import types
 
 from src.config import settings
-from src.models import ExtractionBatch
+from src.models import (
+    ComplianceLevel,
+    CostImpact,
+    EngineeringDiscipline,
+    ExtractionBatch,
+    ExtractionItem,
+)
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_SYSTEM_PROMPT = """
-You are an expert Capital Engineering Subject Matter Expert (SME) and RFP Technical Analyst.
-Your role is to analyze RFP (Request for Proposal), FEED (Front End Engineering Design), and technical specification documents.
-Extract all actionable technical specifications, engineering constraints, vendor obligations, compliance standards, and deliverables into structured requirements.
+CAPITAL_ENG_SYSTEM_PROMPT = """
+You are a Principal Capital Projects Technical Lead and Senior EPC (Engineering, Procurement, and Construction) Subject Matter Expert (SME).
+Your objective is to analyze engineering RFPs (Request for Proposal), FEED (Front End Engineering Design) dossiers, datasheets, and technical specifications.
 
-For each requirement:
-- Extract or assign a clear requirement code or clause number.
-- Categorize by engineering discipline (Mechanical, Electrical, Civil/Structural, Process, I&C, HSE, General).
-- Identify compliance level (Mandatory, Recommended, Optional, Informational).
-- Note cost impact and provide confidence scores.
+Extract all concrete, enforceable technical requirements, design criteria, material specifications, vendor deliverables, safety standards, and project constraints into structured items.
+
+Guidelines for Extraction:
+1. Clause/Code: Identify existing clause references (e.g., 'Sec 3.4.1', 'API-650-Req4') or generate a meaningful identifier (e.g., 'REQ-MEC-001', 'REQ-ELE-002').
+2. Discipline: Assign to the exact engineering discipline (Mechanical, Piping, Electrical, I&C, Civil/Structural, Process, HSE, Quality, General).
+3. Compliance Level:
+   - Mandatory: Uses 'shall', 'must', 'required', absolute design codes.
+   - Recommended: Uses 'should', 'recommended practice', preferred vendor options.
+   - Optional: Uses 'may', alternative scopes.
+   - Informational: Background process context or site data without direct vendor obligations.
+4. Cost Impact: Estimate the CapEx cost impact tier (High, Medium, Low, Negligible, TBD).
+5. Confidence Score: Provide a confidence score between 0.0 and 1.0 reflecting clarity and parsing precision.
+6. Summary: Provide an executive summary highlighting the primary engineering scope, major equipment packages, and high-risk technical constraints.
 """
 
 
-def get_gemini_client() -> genai.Client:
-    """Initialize and return the Google GenAI client."""
-    if not settings.gemini_api_key:
-        logger.warning("GEMINI_API_KEY is not set. API calls will fail unless configured.")
-    return genai.Client(api_key=settings.gemini_api_key)
+def get_gemini_client(api_key: Optional[str] = None) -> genai.Client:
+    """Initialize and return a configured Google GenAI client."""
+    key = api_key or settings.gemini_api_key
+    if not key:
+        logger.warning("No Gemini API key provided. LLM operations will fail unless configured.")
+    return genai.Client(api_key=key)
 
 
 def extract_requirements_from_text(
     content: str,
-    document_title: str = "Engineering RFP Document",
+    document_title: str = "Engineering Specification",
+    model: Optional[str] = None,
     client: Optional[genai.Client] = None,
 ) -> ExtractionBatch:
     """
-    Extract structured engineering requirements from raw document text using Gemini.
+    Extract structured engineering requirements from raw specification text
+    using Gemini 2.5 Flash with Pydantic structured output schema.
     """
-    if client is None:
-        client = get_gemini_client()
+    if not content or not content.strip():
+        raise ValueError("Document content is empty; cannot extract requirements.")
 
-    prompt = f"Analyze the following engineering/RFP text and extract all requirements for document '{document_title}':\n\n{content}"
+    target_model = model or settings.gemini_model or "gemini-2.5-flash"
+    ai_client = client or get_gemini_client()
+
+    user_prompt = (
+        f"Analyze the following capital engineering document and extract all requirements.\n\n"
+        f"Document Title: {document_title}\n"
+        f"--- DOCUMENT CONTENT ---\n"
+        f"{content.strip()}\n"
+        f"--- END OF CONTENT ---"
+    )
 
     try:
-        response = client.models.generate_content(
-            model=settings.gemini_model,
-            contents=prompt,
+        response = ai_client.models.generate_content(
+            model=target_model,
+            contents=user_prompt,
             config=types.GenerateContentConfig(
-                system_instruction=EXTRACTION_SYSTEM_PROMPT,
+                system_instruction=CAPITAL_ENG_SYSTEM_PROMPT,
                 response_mime_type="application/json",
                 response_schema=ExtractionBatch,
-                temperature=0.2,
+                temperature=0.1,
             ),
         )
 
-        # Parse output into ExtractionBatch
-        if response.text:
-            return ExtractionBatch.model_validate_json(response.text)
-        else:
-            raise ValueError("Gemini returned an empty response")
+        if not response.text:
+            raise ValueError(f"Gemini model '{target_model}' returned an empty response body.")
+
+        # Parse and validate with Pydantic model
+        extraction_batch = ExtractionBatch.model_validate_json(response.text)
+        
+        # Ensure document title and batch_id are set if omitted by model
+        if not extraction_batch.document_title:
+            extraction_batch.document_title = document_title
+        if not extraction_batch.batch_id:
+            extraction_batch.batch_id = str(uuid4())
+
+        # Automatically collect unique disciplines if not populated
+        if not extraction_batch.identified_disciplines and extraction_batch.items:
+            extraction_batch.identified_disciplines = list(
+                {item.engineering_discipline for item in extraction_batch.items}
+            )
+
+        logger.info(
+            f"Successfully extracted {len(extraction_batch.items)} items from '{document_title}' using {target_model}."
+        )
+        return extraction_batch
 
     except Exception as e:
-        logger.error(f"Error during Gemini extraction: {e}")
-        # Return an empty batch structure with error note
-        return ExtractionBatch(
-            document_title=document_title,
-            items=[],
-            summary=f"Extraction failed: {str(e)}",
+        logger.error(f"Failed extraction with Gemini model '{target_model}': {e}", exc_info=True)
+        raise
+
+
+def extract_requirements_from_chunks(
+    chunks: List[str],
+    document_title: str = "Engineering Specification",
+    model: Optional[str] = None,
+    client: Optional[genai.Client] = None,
+) -> ExtractionBatch:
+    """
+    Sequentially extract requirements across multiple text chunks and aggregate into a single batch.
+    """
+    if not chunks:
+        raise ValueError("Chunks list is empty.")
+
+    batch_id = str(uuid4())
+    aggregated_items: List[ExtractionItem] = []
+    summaries: List[str] = []
+    disciplines_set = set()
+
+    for idx, chunk in enumerate(chunks, start=1):
+        chunk_title = f"{document_title} (Part {idx}/{len(chunks)})"
+        chunk_batch = extract_requirements_from_text(
+            content=chunk,
+            document_title=chunk_title,
+            model=model,
+            client=client,
         )
+        aggregated_items.extend(chunk_batch.items)
+        if chunk_batch.executive_summary:
+            summaries.append(f"[Part {idx}]: {chunk_batch.executive_summary}")
+        disciplines_set.update(chunk_batch.identified_disciplines)
+
+    combined_summary = "\n".join(summaries) if summaries else None
+
+    return ExtractionBatch(
+        batch_id=batch_id,
+        document_title=document_title,
+        executive_summary=combined_summary,
+        identified_disciplines=list(disciplines_set),
+        items=aggregated_items,
+    )

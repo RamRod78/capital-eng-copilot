@@ -189,17 +189,17 @@ with tab_extract:
     if "latest_batch" in st.session_state:
         batch = st.session_state["latest_batch"]
         st.success(f"Extraction complete! Found {len(batch.items)} requirement items.")
-        if batch.summary:
-            st.markdown(f"**Extraction Summary:** {batch.summary}")
+        if batch.executive_summary:
+            st.markdown(f"**Extraction Summary:** {batch.executive_summary}")
 
         if batch.items:
             items_data = [
                 {
                     "Code": item.requirement_code or "N/A",
-                    "Discipline": item.engineering_discipline.value,
-                    "Compliance": item.compliance_level.value,
+                    "Discipline": item.engineering_discipline.value if hasattr(item.engineering_discipline, "value") else str(item.engineering_discipline),
+                    "Compliance": item.compliance_level.value if hasattr(item.compliance_level, "value") else str(item.compliance_level),
                     "Requirement": item.requirement_text,
-                    "Cost Impact": item.estimated_cost_impact or "N/A",
+                    "Cost Impact": item.estimated_cost_impact.value if hasattr(item.estimated_cost_impact, "value") else str(item.estimated_cost_impact or "N/A"),
                     "Confidence": f"{item.confidence_score:.2f}",
                 }
                 for item in batch.items

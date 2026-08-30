@@ -67,9 +67,9 @@ def store_extraction_and_embeddings(
                         item.requirement_code,
                         item.requirement_text,
                         item.category,
-                        item.engineering_discipline.value,
-                        item.compliance_level.value,
-                        item.estimated_cost_impact,
+                        item.engineering_discipline.value if hasattr(item.engineering_discipline, "value") else str(item.engineering_discipline),
+                        item.compliance_level.value if hasattr(item.compliance_level, "value") else str(item.compliance_level),
+                        item.estimated_cost_impact.value if hasattr(item.estimated_cost_impact, "value") else str(item.estimated_cost_impact),
                         item.confidence_score,
                     ),
                 )
