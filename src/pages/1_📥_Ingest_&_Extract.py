@@ -1,3 +1,11 @@
+import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path
+root_dir = str(Path(__file__).resolve().parents[2])
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
+
 import streamlit as st
 import pandas as pd
 from uuid import uuid4
