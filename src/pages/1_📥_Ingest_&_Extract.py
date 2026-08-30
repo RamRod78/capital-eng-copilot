@@ -13,18 +13,65 @@ from uuid import uuid4
 from src.extract import extract_requirements_from_text
 from src.rag import store_extraction_and_embeddings, get_db_connection
 from src.models import EngineeringDiscipline
+from src.parsers import parse_uploaded_file
 
 st.set_page_config(page_title="Ingest & Extract | Capital Engineering Copilot", page_icon="📥", layout="wide")
 
 st.markdown("## 📥 Ingest Engineering Documents & Extract Requirements")
-st.write("Upload or paste engineering specifications, FEED packages, or company standards. Gemini parses requirements, recommendations, and guidelines with confidence scores.")
+st.write("Upload specification documents (PDF, Word, Excel, CSV, Text) or paste raw engineering text. Gemini extracts requirements, recommendations, and guidelines with confidence scores.")
 
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    doc_title = st.text_input("Document / Standard Title", value="Project FEED Specification - Pressure Vessels & Piping")
-    doc_type = st.selectbox("Document Type", ["Standard / Specification", "FEED Dossier", "Equipment Datasheet", "Vendor RFP", "Best Practice Guideline"])
-    doc_owner = st.selectbox("Default Document Owner / Discipline Lead", [
+    input_method = st.radio(
+        "Select Document Input Method:",
+        ["📁 Upload Document File (PDF, DOCX, XLSX, CSV, TXT)", "📝 Paste Specification Text"],
+        horizontal=True,
+    )
+
+    doc_text_to_process = ""
+    suggested_title = "Engineering Specification"
+
+    if "Upload Document File" in input_method:
+        uploaded_file = st.file_uploader(
+            "Upload an engineering document:",
+            type=["pdf", "docx", "doc", "xlsx", "xls", "csv", "txt", "md"],
+            help="Supports Adobe PDF (.pdf), Microsoft Word (.docx), Excel spreadsheets (.xlsx, .csv), and Markdown/Text (.txt, .md)",
+        )
+        if uploaded_file is not None:
+            suggested_title = uploaded_file.name.rsplit(".", 1)[0]
+            with st.spinner(f"Parsing content from `{uploaded_file.name}`..."):
+                extracted_text, parse_error = parse_uploaded_file(uploaded_file, uploaded_file.name)
+                if parse_error:
+                    st.error(parse_error)
+                else:
+                    doc_text_to_process = extracted_text
+                    st.success(f"✅ Successfully parsed `{uploaded_file.name}` ({len(doc_text_to_process):,} characters)")
+                    with st.expander("👁️ Preview Extracted Document Text"):
+                        st.text_area("Extracted Document Content", value=doc_text_to_process, height=220, disabled=True)
+    else:
+        doc_text_to_process = st.text_area(
+            "Specification Content / Clause Text",
+            height=260,
+            placeholder="Paste technical requirements, ASME/API clauses, design criteria, or vendor deliverables here...",
+        )
+
+    st.markdown("#### ⚙️ Document Metadata & Governance")
+    meta_c1, meta_c2, meta_c3 = st.columns(3)
+    with meta_c1:
+        doc_title = st.text_input("Document / Project Title", value=suggested_title)
+    with meta_c2:
+        doc_type = st.selectbox("Document Type", [
+            "Standard / Specification",
+            "FEED Dossier",
+            "Equipment Datasheet",
+            "Vendor RFP",
+            "Best Practice Guideline",
+        ])
+    with meta_c3:
+        doc_version = st.text_input("Document Revision / Version", value="Rev 1.0")
+
+    doc_owner = st.selectbox("Assigned Document Owner / Discipline Lead", [
         "Mechanical SME",
         "Piping SME",
         "Electrical SME",
@@ -35,12 +82,6 @@ with col1:
         "Quality Manager",
         "General Engineering Lead",
     ])
-    doc_version = st.text_input("Document Revision / Version", value="Rev 2.1")
-    raw_text = st.text_area(
-        "Specification Content / Clause Text",
-        height=280,
-        placeholder="Paste technical requirements, ASME/API clauses, design criteria, or vendor deliverables here...",
-    )
 
 with col2:
     st.info(
@@ -55,18 +96,18 @@ with col2:
     run_extract = st.button("🚀 Run Gemini Extraction", type="primary", use_container_width=True)
 
 if run_extract:
-    if not raw_text.strip():
-        st.warning("Please provide specification text to analyze.")
+    if not doc_text_to_process.strip():
+        st.warning("Please upload a file or enter specification text to extract.")
     else:
-        with st.spinner(f"Extracting structured requirements and calculating confidence scores using Gemini..."):
+        with st.spinner(f"Extracting structured requirements and scoring confidence using Gemini..."):
             try:
                 batch = extract_requirements_from_text(
-                    content=raw_text,
+                    content=doc_text_to_process,
                     document_title=doc_title,
                     document_owner=doc_owner,
                 )
                 st.session_state["latest_batch"] = batch
-                st.session_state["latest_raw_text"] = raw_text
+                st.session_state["latest_raw_text"] = doc_text_to_process
                 st.session_state["latest_doc_type"] = doc_type
                 st.session_state["latest_doc_owner"] = doc_owner
                 st.session_state["latest_doc_version"] = doc_version
