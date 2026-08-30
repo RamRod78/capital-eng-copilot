@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist/server",
+    "rootDir": "src",
+    "skipLibCheck": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["src/shared/*"],
+      "@server/*": ["src/server/*"]
+    }
+  },
+  "include": ["src/server", "src/shared"]
+}

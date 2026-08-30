@@ -1,6 +1,6 @@
 # Capital Engineering Copilot 🏗️
 
-An AI-powered engineering knowledge extraction, vector & graph retrieval, Subject Matter Expert (SME) validation, and RFP/SOW generation system built with **Google Gemini**, **PostgreSQL with pgvector**, and **Streamlit**.
+An AI-powered engineering knowledge extraction, vector retrieval, Subject Matter Expert (SME) validation, and RFP/SOW generation system built with **TypeScript**, **React**, **Vite**, **TanStack Query & Table**, **Hono**, **Drizzle ORM**, **Google Gemini**, and **PostgreSQL with pgvector**.
 
 ---
 
@@ -9,139 +9,99 @@ An AI-powered engineering knowledge extraction, vector & graph retrieval, Subjec
 In Capital Engineering and EPC (Engineering, Procurement, Construction) projects, engineering standards, guidelines, vendor specifications, and FEED documents often live in fragmented, unstructured formats. 
 
 **Capital Engineering Copilot** transforms this unstructured knowledge base into an active, governed engineering asset:
-1. **Intelligent Ingestion & Extraction**: Automatically parses requirements, recommendations, and guidelines from engineering documents, scoring extraction confidence and tagging disciplines and document owners.
-2. **Confidence-Gated SME Review**: Low-confidence or cross-discipline items are routed directly to assigned Subject Matter Experts (SMEs) and document owners for review, refinement, and validation.
-3. **Hybrid Knowledge Base**: Stored in a triple-model knowledge store combining Relational Metadata (owners, audit history, compliance status), Vector Embeddings (`pgvector` for semantic search), and Knowledge Graph relationships (systems ↔ standards ↔ disciplines).
-4. **Project Scoping & RFP Generator Agent**: Ingests new capital project preliminary scopes, matches all applicable mandatory requirements, recommendations, and guidelines, and drafts a vendor-ready RFP / Scope of Work (SOW) package.
+1. **Intelligent Ingestion & Extraction**: Automatically parses requirements, recommendations, and guidelines from multi-format engineering documents (PDF, Word, Excel, CSV, Text), scoring extraction confidence and tagging disciplines and document owners.
+2. **Confidence-Gated SME Review**: Low-confidence (< 0.85) or cross-discipline items are routed directly to assigned Subject Matter Experts (SMEs) and document owners for review, refinement, and validation.
+3. **Hybrid Knowledge Base**: Stored in a unified knowledge store combining Relational Metadata (owners, audit history, compliance status) and Vector Embeddings (`pgvector` for dense semantic search).
+4. **Project Scoping & RFP Generator Agent**: Ingests new capital project preliminary scopes, matches all applicable mandatory requirements, recommendations, and guidelines, and drafts a vendor-ready RFP / Scope of Work (SOW) package with 1-click Markdown and CSV export.
 5. **Closed-Loop "Lessons Learned" Engine**: Feedback from human reviews and project scoping feeds back into agent memory and flags upstream source documents for revisions.
 
 ---
 
-## 🗺️ Project Delivery Milestones
+## 🛠️ Technology Stack (Approved Tech Stack)
 
-```mermaid
-flowchart LR
-    M1["Milestone 1<br/>Ingestion & SME Review"] --> M2["Milestone 2<br/>Hybrid Knowledge Store"]
-    M2 --> M3["Milestone 3<br/>Project Scoping & RFP Agent"]
-    M3 --> M4["Milestone 4<br/>Lessons Learned Loop"]
-```
+Strictly conforming to [`.antigravity/techstack.md`](file:///.antigravity/techstack.md):
 
-| Milestone | Objective | Key Deliverables | Status |
-| :--- | :--- | :--- | :--- |
-| **Milestone 1** | **Ingestion & Confidence-Driven Review** | Multi-type extraction (Requirements, Recommendations, Guidelines), confidence scoring, document owner assignment, multi-discipline SME review queue. | 🚀 In Progress |
-| **Milestone 2** | **Hybrid Knowledge Store (Relational + Vector + Graph)** | PostgreSQL + `pgvector` indexing, graph relations across equipment systems and standards, document versioning. | 📋 Planned |
-| **Milestone 3** | **Project Scoping & Automated RFP Agent** | Project scope intake, intelligent requirement matching, human curation interface, and formatted RFP/SOW export (DOCX/Markdown/Excel). | 📋 Planned |
-| **Milestone 4** | **Closed-Loop Feedback & Lessons Learned** | Review memory updates, source document revision flags, and SME notification queue. | 📋 Planned |
+| Layer | Technology |
+| :--- | :--- |
+| **Language & Toolchain** | TypeScript 5+, Vite 6+, Node 22/24 |
+| **Frontend Framework** | React 18, React Router v6, TailwindCSS |
+| **Client State & Tables** | TanStack Query v5, TanStack Table v8 |
+| **Client Forms & Validation** | React Hook Form, Zod isomorphic schemas |
+| **Backend API** | Hono (`@hono/node-server`) with Zod validation |
+| **Database & ORM** | Drizzle ORM, PostgreSQL with `pgvector` |
+| **AI & Embeddings** | `@google/genai` (Gemini 2.5 Flash, `text-embedding-004`) |
+| **File Parsing** | `pdf-parse`, `mammoth` (DOCX), `xlsx` (Excel/CSV) |
+| **Testing** | Vitest, Testing Library |
+| **Base Image** | `node:22-alpine` (multi-stage production container) |
 
 ---
 
-## 📁 Repository Layout & Modular Architecture
+## 📁 Repository Layout
 
 ```
 capital-eng-copilot/
 ├── .antigravity/
-│   └── rules.md                # System instructions for the Antigravity agent
+│   └── techstack.md             # Organizational approved tech stack
 ├── docker/
-│   ├── docker-compose.yml       # Stack configuration for Portainer / Docker Compose
-│   └── init.sql                 # Schema definition (relational, pgvector, graph relations)
+│   ├── docker-compose.yml       # Stack configuration (pgvector + Node container)
+│   └── init.sql                 # PostgreSQL + pgvector schema
 ├── src/
-│   ├── app.py                   # Streamlit multi-page portal entrypoint
-│   ├── config.py                # Environment settings & Pydantic configuration
-│   ├── models.py                # Domain data models (Extractions, Scopes, Reviews)
-│   ├── extract.py               # Gemini extraction worker with confidence scoring
-│   ├── rag.py                   # Vector search & semantic similarity matching
-│   ├── scoping/                 # Milestone 3: Scoping agent & RFP generator
-│   │   ├── agent.py
-│   │   └── exporter.py
-│   ├── feedback/                # Milestone 4: Lessons learned & document revision flags
-│   │   └── loop.py
-│   └── pages/                   # Streamlit Multi-Page UI
-│       ├── 1_📥_Ingest_&_Extract.py
-│       ├── 2_📋_SME_Review_Queue.py
-│       ├── 3_🎯_Project_Scoping_&_RFP.py
-│       ├── 4_💡_Lessons_Learned.py
-│       └── 5_🔍_Knowledge_Explorer.py
-├── tests/
-│   ├── test_extract.py          # Extraction and chunking tests
-│   ├── test_models.py           # Schema and validation tests
-│   └── test_review_queue.py     # Review and status transition tests
-├── .env.example
-├── .gitignore
-├── Dockerfile                   # Multi-stage production container
-├── requirements.txt
-└── README.md
+│   ├── shared/
+│   │   └── schemas.ts           # Isomorphic Zod models & TypeScript types
+│   ├── server/                  # Hono TypeScript Backend
+│   │   ├── index.ts             # Server entrypoint (@hono/node-server)
+│   │   ├── db/                  # Drizzle ORM schema and pg connection
+│   │   ├── routes/              # Ingest, Extractions, Scoping, Feedback, Search, Stats
+│   │   └── services/            # Gemini client & multi-format file parsers
+│   └── client/                  # React + Vite + TanStack SPA
+│       ├── index.html
+│       └── src/
+│           ├── main.tsx         # React root + QueryClient + Router
+│           ├── App.tsx          # App shell & sidebar navigation
+│           ├── api/client.ts    # Typed fetch API client
+│           └── pages/           # Dashboard, IngestExtract, ReviewQueue, ProjectScoping, LessonsLearned, KnowledgeSearch
+├── tests/                       # Vitest test suite
+│   ├── schemas.test.ts
+│   ├── parsers.test.ts
+│   └── scoping.test.ts
+├── Dockerfile                   # Multi-stage Alpine Node container
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+└── vitest.config.ts
 ```
 
 ---
 
-## ⚡ Core Capabilities
+## 🚀 Quickstart & Development
 
-1. **Multi-Classification Extraction**: Extracts concrete items into **Mandatory Requirements** (*shall/must*), **Recommendations** (*should/preferred*), and **Optional Guidelines** (*may/optional*).
-2. **Confidence-Gated SME Routing**: Items with confidence below threshold ($\lt 0.85$) or conflicting disciplines are routed to designated document owners and discipline SMEs.
-3. **Vector Similarity & Duplicate Detection**: Cosine similarity via `pgvector` (`text-embedding-004`) to prevent duplicate specifications and surface related clauses.
-4. **Project Scoping & Vendor RFP Export**: Assembles curated technical scopes of work formatted for external EPC and engineering service providers.
-5. **Continuous Learning Loop**: Feedback from SME reviews updates agent prompt context and flags obsolete engineering standards for owner revision.
-
----
-
-## 🚀 Getting Started
-
-### 1. Prerequisites
-- Python 3.11+
-- Docker & Docker Compose (or Portainer)
-- Google Gemini API Key
-
-### 2. Configure Environment Variables
-Copy `.env.example` to `.env` and fill in your Gemini API key:
+### 1. Install Dependencies
 ```bash
-cp .env.example .env
-```
-Edit `.env`:
-```ini
-GEMINI_API_KEY=your_actual_gemini_api_key
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/capital_eng
+npm install
 ```
 
-### 3. Deploying with Docker Compose / Portainer
-
-#### Running locally with Docker Compose:
+### 2. Run Locally in Development
 ```bash
-cd docker
-docker compose up -d
+# Start backend server and Vite client concurrently
+npm run dev
 ```
-Access the application at: `http://localhost:8501`
+Client: `http://localhost:5173` | Server API: `http://localhost:3000`
 
-#### Deploying in Portainer:
-1. Navigate to **Stacks** > **Add stack**.
-2. Select repository or paste `docker/docker-compose.yml`.
-3. Provide environment variables (`GEMINI_API_KEY`, etc.) in the stack environment config.
-4. Click **Deploy the stack**.
+### 3. Run Test Suite
+```bash
+npm test
+```
+
+### 4. Build Production Bundle
+```bash
+npm run build
+```
 
 ---
 
-## 🛠️ Local Development Setup
+## 🐳 Docker Deployment (Portainer / Docker Compose)
 
 ```bash
-# 1. Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Start PostgreSQL with pgvector (via Docker)
-docker run -d --name pgvector-local \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=capital_eng \
-  -p 5432:5432 \
-  -v $(pwd)/docker/init.sql:/docker-entrypoint-initdb.d/init.sql \
-  pgvector/pgvector:pg16
-
-# 4. Launch Streamlit UI
-streamlit run src/app.py
+docker compose -f docker/docker-compose.yml up -d --build
 ```
-
----
-
-## 📄 License
-Internal use only. Capital Engineering Copilot.
+Access the application at `http://<HOST_IP>:8501`.

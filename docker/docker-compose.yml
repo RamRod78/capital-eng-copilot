@@ -32,11 +32,11 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      - PYTHONPATH=/app
+      - NODE_ENV=production
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-capital_eng}
+      - PORT=8501
       - STREAMLIT_SERVER_PORT=8501
-      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
     ports:
       - "${APP_PORT:-8501}:8501"
     networks:
