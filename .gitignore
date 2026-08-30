@@ -1,3 +1,13 @@
+# Node & JavaScript
+node_modules/
+dist/
+.pnpm-store/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.vitest/
+
 # Python
 __pycache__/
 *.py[cod]
