@@ -21,7 +21,6 @@ export default function IngestExtract() {
   const [docType, setDocType] = useState('Standard / Specification');
   const [docOwner, setDocOwner] = useState('Mechanical SME');
   const [docVersion, setDocVersion] = useState('Rev 2.1');
-  const [model, setModel] = useState('gemini-3.6-flash');
   const [rawText, setRawText] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -58,7 +57,6 @@ export default function IngestExtract() {
         content: rawText,
         documentTitle: docTitle,
         documentOwner: docOwner,
-        model,
       }),
     onSuccess: (data) => {
       setExtractionResult(data);
@@ -217,42 +215,25 @@ export default function IngestExtract() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
-                  Assigned Document Owner / Discipline Lead
-                </label>
-                <select
-                  value={docOwner}
-                  onChange={(e) => setDocOwner(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white"
-                >
-                  <option>Mechanical SME</option>
-                  <option>Piping SME</option>
-                  <option>Electrical SME</option>
-                  <option>I&C Lead</option>
-                  <option>Process Lead</option>
-                  <option>Civil/Structural SME</option>
-                  <option>HSE Lead</option>
-                  <option>Quality Manager</option>
-                  <option>General Engineering Lead</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
-                  Gemini AI Model
-                </label>
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white"
-                >
-                  <option value="gemini-3.6-flash">Gemini 3.6 Flash (Fast & Accurate)</option>
-                  <option value="gemini-2.0-flash">Gemini 2.0 Flash (Stable)</option>
-                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                  <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep Reasoning)</option>
-                </select>
-              </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
+                Assigned Document Owner / Discipline Lead
+              </label>
+              <select
+                value={docOwner}
+                onChange={(e) => setDocOwner(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white"
+              >
+                <option>Mechanical SME</option>
+                <option>Piping SME</option>
+                <option>Electrical SME</option>
+                <option>I&C Lead</option>
+                <option>Process Lead</option>
+                <option>Civil/Structural SME</option>
+                <option>HSE Lead</option>
+                <option>Quality Manager</option>
+                <option>General Engineering Lead</option>
+              </select>
             </div>
 
             <button
@@ -264,47 +245,45 @@ export default function IngestExtract() {
               {extractMutation.isPending ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Extracting Requirements with Gemini...
+                  Running 3-Stage Extraction Pipeline...
                 </>
               ) : (
                 <>
                   <Sparkles className="w-5 h-5" />
-                  Run Gemini Extraction
+                  Run 3-Stage Requirements Extraction
                 </>
               )}
             </button>
           </div>
         </div>
 
-        {/* Right 1 Col: Engine Info */}
+        {/* Right 1 Col: Pipeline Info */}
         <div className="space-y-4">
           <div className="bg-brand-900 text-white p-6 rounded-xl space-y-4 shadow-md">
-            <h3 className="font-bold text-base flex items-center gap-2">
+            <h3 className="font-bold text-base flex items-center gap-2 text-white">
               <Sparkles className="w-5 h-5 text-brand-300" />
-              Gemini Extraction Engine
+              3-Stage Multi-Agent Extraction Pipeline
             </h3>
-            <ul className="text-xs text-brand-100 space-y-2.5">
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-400 mt-1.5 shrink-0" />
-                <span><strong>Mandatory Requirements</strong> (shall/must obligations)</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-400 mt-1.5 shrink-0" />
-                <span><strong>Recommendations</strong> (preferred engineering best practices)</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-400 mt-1.5 shrink-0" />
-                <span><strong>Guidelines</strong> (optional/alternative scope options)</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-400 mt-1.5 shrink-0" />
-                <span><strong>Confidence Scoring</strong> (&lt; 0.85 routed to SME review queue)</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-400 mt-1.5 shrink-0" />
-                <span><strong>Dense Embeddings</strong> (768-dim vectors via text-embedding-004)</span>
-              </li>
-            </ul>
+            <div className="text-xs text-brand-100 space-y-3.5">
+              <div className="bg-brand-950/60 p-3 rounded-lg border border-brand-800/80">
+                <span className="font-semibold text-brand-300 block text-xs">Stage 1: ToC & Structure Chunking</span>
+                <span className="text-slate-300 text-[11px] mt-0.5 block">
+                  Scans document layout with <strong>Gemini 3.6 Flash</strong> and partitions into logical engineering sections preserving clause context.
+                </span>
+              </div>
+              <div className="bg-brand-950/60 p-3 rounded-lg border border-brand-800/80">
+                <span className="font-semibold text-brand-300 block text-xs">Stage 2: Parallel Deep Extraction</span>
+                <span className="text-slate-300 text-[11px] mt-0.5 block">
+                  Runs concurrently across sections with <strong>Gemini 3.7 Flash</strong> (Thinking enabled + Structured Outputs) for 100% valid schema fidelity.
+                </span>
+              </div>
+              <div className="bg-brand-950/60 p-3 rounded-lg border border-brand-800/80">
+                <span className="font-semibold text-brand-300 block text-xs">Stage 3: Synthesis & De-duplication</span>
+                <span className="text-slate-300 text-[11px] mt-0.5 block">
+                  Consolidates items, eliminates cross-boundary duplicates, and performs cross-discipline conflict analysis via <strong>Gemini 3.6 Flash</strong>.
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>

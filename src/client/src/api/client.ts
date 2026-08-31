@@ -35,7 +35,6 @@ export async function extractRequirements(data: {
   content: string;
   documentTitle?: string;
   documentOwner?: string;
-  model?: string;
 }): Promise<ExtractionBatch> {
   const res = await fetch(`${API_BASE}/ingest/extract`, {
     method: 'POST',

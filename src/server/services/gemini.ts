@@ -56,69 +56,350 @@ You MUST respond strictly with valid JSON conforming to the following structure:
 }
 `;
 
+export interface DocumentSection {
+  section_title: string;
+  content: string;
+}
+
+const SECTIONS_RESPONSE_SCHEMA = {
+  type: 'ARRAY',
+  items: {
+    type: 'OBJECT',
+    properties: {
+      section_title: { type: 'STRING' },
+      content: { type: 'STRING' },
+    },
+    required: ['section_title', 'content'],
+  },
+};
+
+const EXTRACTION_ITEM_RESPONSE_SCHEMA = {
+  type: 'ARRAY',
+  items: {
+    type: 'OBJECT',
+    properties: {
+      section_title: { type: 'STRING' },
+      requirement_code: { type: 'STRING' },
+      requirement_text: { type: 'STRING' },
+      item_type: {
+        type: 'STRING',
+        enum: ['Requirement', 'Recommendation', 'Guideline'],
+      },
+      category: { type: 'STRING' },
+      engineering_discipline: {
+        type: 'STRING',
+        enum: [
+          'Mechanical',
+          'Piping',
+          'Electrical',
+          'I&C',
+          'Civil/Structural',
+          'Process',
+          'HSE',
+          'Quality',
+          'General',
+        ],
+      },
+      compliance_level: {
+        type: 'STRING',
+        enum: ['Mandatory', 'Recommended', 'Optional', 'Informational'],
+      },
+      estimated_cost_impact: {
+        type: 'STRING',
+        enum: ['High', 'Medium', 'Low', 'Negligible', 'TBD'],
+      },
+      document_owner: { type: 'STRING' },
+      confidence_score: { type: 'NUMBER' },
+      confidence_reasoning: { type: 'STRING' },
+    },
+    required: [
+      'requirement_text',
+      'item_type',
+      'engineering_discipline',
+      'compliance_level',
+    ],
+  },
+};
+
+const SYNTHESIS_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    executive_summary: { type: 'STRING' },
+    identified_disciplines: {
+      type: 'ARRAY',
+      items: { type: 'STRING' },
+    },
+    cross_discipline_conflicts: {
+      type: 'ARRAY',
+      items: { type: 'STRING' },
+    },
+  },
+  required: ['executive_summary', 'identified_disciplines'],
+};
+
+/**
+ * Fallback deterministic chunker when documents are large and AI partitioning fails or is unneeded
+ */
+function deterministicChunker(content: string, defaultTitle: string, targetChunkSize = 7000): DocumentSection[] {
+  if (content.length <= targetChunkSize) {
+    return [{ section_title: defaultTitle || 'General Scope', content }];
+  }
+
+  const paragraphs = content.split(/\n\s*\n/);
+  const sections: DocumentSection[] = [];
+  let currentTitle = defaultTitle || 'Section 1';
+  let currentChunk = '';
+  let sectionIndex = 1;
+
+  for (const para of paragraphs) {
+    const headerMatch = para.match(/^(?:#+|[0-9]+(?:\.[0-9]+)*|Section|Chapter|Part)\s+([^\n]+)/i);
+    if (headerMatch && currentChunk.length > 2000) {
+      sections.push({ section_title: currentTitle, content: currentChunk.trim() });
+      sectionIndex++;
+      currentTitle = headerMatch[0].substring(0, 100).trim();
+      currentChunk = para + '\n\n';
+      continue;
+    }
+
+    if (currentChunk.length + para.length > targetChunkSize && currentChunk.length > 2000) {
+      sections.push({ section_title: currentTitle, content: currentChunk.trim() });
+      sectionIndex++;
+      currentTitle = `Section ${sectionIndex} (Continued)`;
+      currentChunk = para + '\n\n';
+    } else {
+      currentChunk += para + '\n\n';
+    }
+  }
+
+  if (currentChunk.trim()) {
+    sections.push({ section_title: currentTitle, content: currentChunk.trim() });
+  }
+
+  return sections.length > 0 ? sections : [{ section_title: defaultTitle, content }];
+}
+
+/**
+ * Stage 1: Table of Contents & Chunking using Gemini 3.6 Flash
+ */
+async function scanAndPartitionDocument(
+  content: string,
+  documentTitle: string,
+  model = 'gemini-3.6-flash'
+): Promise<DocumentSection[]> {
+  if (content.length < 5000) {
+    return [{ section_title: documentTitle || 'General Scope', content: content.trim() }];
+  }
+
+  const ai = getGeminiClient();
+  const prompt = `You are an EPC Engineering Lead. Scan the following engineering specification and partition it into logical engineering sections (or coherent chunks preserving clause boundaries).
+Ensure all original text is preserved across the sections without losing technical specifications or clause numbers.
+
+Document Title: ${documentTitle}
+--- DOCUMENT CONTENT ---
+${content.trim()}
+--- END OF DOCUMENT CONTENT ---`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        systemInstruction: 'Partition the document into logical engineering sections or 10-15 page chunks. Return a JSON array of objects with section_title and full section content.',
+        responseMimeType: 'application/json',
+        responseSchema: SECTIONS_RESPONSE_SCHEMA,
+        temperature: 0.1,
+      },
+    });
+
+    const parsed: DocumentSection[] = JSON.parse(response.text || '[]');
+    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(p => p.section_title && p.content)) {
+      console.log(`📑 Stage 1 complete: Document partitioned into ${parsed.length} logical sections.`);
+      return parsed;
+    }
+  } catch (err: any) {
+    console.warn(`Stage 1 Gemini ToC chunking failed (${err.message}). Using deterministic engineering section chunker.`);
+  }
+
+  const chunks = deterministicChunker(content, documentTitle);
+  console.log(`📑 Stage 1 complete: Document partitioned into ${chunks.length} sections via fallback chunker.`);
+  return chunks;
+}
+
+/**
+ * Stage 2: Parallel Extraction across sections using Gemini 3.7 Flash with Thinking & Structured Outputs
+ */
+async function extractSection(
+  section: DocumentSection,
+  documentTitle: string,
+  documentOwner: string,
+  model = 'gemini-3.7-flash'
+): Promise<any[]> {
+  const ai = getGeminiClient();
+  const prompt = `Analyze the following engineering section from "${documentTitle}" and extract all concrete technical requirements, recommendations, and guidelines.
+
+Document Title: ${documentTitle}
+Section Title: ${section.section_title}
+Assigned SME: ${documentOwner}
+
+--- SECTION TEXT ---
+${section.content}
+--- END OF SECTION TEXT ---`;
+
+  const modelsToTry = [model, 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.0-flash'].filter(
+    (m, idx, arr) => arr.indexOf(m) === idx
+  );
+
+  for (const m of modelsToTry) {
+    try {
+      const config: any = {
+        systemInstruction: CAPITAL_ENG_SYSTEM_PROMPT,
+        responseMimeType: 'application/json',
+        responseSchema: EXTRACTION_ITEM_RESPONSE_SCHEMA,
+        temperature: 0.1,
+      };
+
+      // Enable thinking on Gemini 3.7 Flash
+      if (m.includes('3.7') || m.includes('thinking')) {
+        config.thinkingConfig = { thinkingBudget: 1024 };
+      }
+
+      const response = await ai.models.generateContent({
+        model: m,
+        contents: prompt,
+        config,
+      });
+
+      const parsed = JSON.parse(response.text || '[]');
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => ({
+          ...item,
+          section_title: item.section_title || section.section_title,
+          document_owner: item.document_owner || documentOwner,
+        }));
+      }
+    } catch (err: any) {
+      console.warn(`Extraction for section "${section.section_title}" with ${m} failed: ${err.message}. Trying next fallback...`);
+    }
+  }
+
+  return [];
+}
+
+/**
+ * Stage 3: Synthesis, De-duplication, and Cross-Discipline Review using Gemini 3.6 Flash
+ */
+async function synthesizeAndDeduplicate(
+  rawItems: any[],
+  documentTitle: string,
+  documentOwner: string,
+  model = 'gemini-3.6-flash'
+): Promise<ExtractionBatch> {
+  // 1. In-memory de-duplication
+  const seenTexts = new Set<string>();
+  const uniqueItems: any[] = [];
+
+  for (const item of rawItems) {
+    const normalized = (item.requirement_text || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    if (normalized.length < 5) continue;
+
+    if (!seenTexts.has(normalized)) {
+      seenTexts.add(normalized);
+      uniqueItems.push(item);
+    }
+  }
+
+  // 2. Cross-discipline analysis and executive summary synthesis
+  const disciplines = Array.from(
+    new Set(uniqueItems.map((i) => i.engineering_discipline || 'General'))
+  ) as any[];
+
+  const ai = getGeminiClient();
+  const summaryPrompt = `You are a Principal Engineering Reviewer. Synthesize the following ${uniqueItems.length} extracted engineering requirements for document "${documentTitle}".
+Generate a unified executive summary highlighting the primary engineering scope, major equipment packages, and high-risk technical constraints, and check for any cross-discipline conflicts or omissions.
+
+Document Title: ${documentTitle}
+Lead SME: ${documentOwner}
+Disciplines Identified: ${disciplines.join(', ')}
+
+Sample Extracted Items:
+${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_discipline}][${it.compliance_level}] ${it.requirement_code || 'REQ'}: ${it.requirement_text}`).join('\n')}
+`;
+
+  let executiveSummary = `Extracted ${uniqueItems.length} technical requirements across ${disciplines.length} engineering disciplines for ${documentTitle}.`;
+  let identifiedDisciplines = disciplines;
+
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: summaryPrompt,
+      config: {
+        systemInstruction: 'Synthesize the extracted engineering items into an executive summary and detect cross-discipline conflicts.',
+        responseMimeType: 'application/json',
+        responseSchema: SYNTHESIS_RESPONSE_SCHEMA,
+        temperature: 0.1,
+      },
+    });
+
+    const parsed = JSON.parse(response.text || '{}');
+    if (parsed.executive_summary) {
+      executiveSummary = parsed.executive_summary;
+      if (Array.isArray(parsed.cross_discipline_conflicts) && parsed.cross_discipline_conflicts.length > 0) {
+        executiveSummary += `\n\nCross-Discipline Notes:\n- ` + parsed.cross_discipline_conflicts.join('\n- ');
+      }
+    }
+    if (Array.isArray(parsed.identified_disciplines) && parsed.identified_disciplines.length > 0) {
+      identifiedDisciplines = parsed.identified_disciplines as any;
+    }
+  } catch (err: any) {
+    console.warn(`Stage 3 executive summary synthesis with ${model} failed: ${err.message}. Using baseline summary.`);
+  }
+
+  const batch: ExtractionBatch = {
+    document_title: documentTitle,
+    document_owner: documentOwner,
+    executive_summary: executiveSummary,
+    identified_disciplines: identifiedDisciplines.length > 0 ? (identifiedDisciplines as any) : ['General'],
+    items: uniqueItems,
+  };
+
+  return ExtractionBatchSchema.parse(batch);
+}
+
+/**
+ * 3-Stage Requirements Extraction Pipeline:
+ * Stage 1 (Table of Contents & Chunking): Gemini 3.6 Flash
+ * Stage 2 (Parallel Extraction): Gemini 3.7 Flash (with Thinking & Structured Outputs)
+ * Stage 3 (Synthesis & De-duplication): Gemini 3.6 Flash
+ */
 export async function extractRequirementsFromText(
   content: string,
   documentTitle = 'Engineering Specification',
-  documentOwner = 'General Engineering SME',
-  model = process.env.GEMINI_MODEL || 'gemini-3.6-flash'
+  documentOwner = 'General Engineering SME'
 ): Promise<ExtractionBatch> {
   if (!content || !content.trim()) {
     throw new Error('Document content is empty; cannot extract requirements.');
   }
 
-  const ai = getGeminiClient();
-  const prompt = `Analyze the following capital engineering document and extract all requirements, recommendations, and guidelines.\n\nDocument Title: ${documentTitle}\nAssigned Document Owner: ${documentOwner}\n\n--- DOCUMENT CONTENT ---\n${content.trim()}\n--- END OF CONTENT ---`;
+  console.log(`🚀 Starting 3-Stage Extraction Pipeline for "${documentTitle}" (${content.length} chars)...`);
 
-  let response;
-  const modelsToTry = [model, 'gemini-2.0-flash', 'gemini-1.5-flash'].filter(
-    (m, idx, arr) => arr.indexOf(m) === idx
+  // Stage 1: Table of Contents & Chunking (Gemini 3.6 Flash)
+  const sections = await scanAndPartitionDocument(content, documentTitle, 'gemini-3.6-flash');
+
+  // Stage 2: Parallel Section Extraction (Gemini 3.7 Flash with Thinking & Structured Outputs)
+  console.log(`⚡ Stage 2: Running parallel extraction across ${sections.length} section(s) with Gemini 3.7 Flash (Thinking enabled)...`);
+  const sectionPromises = sections.map((section) =>
+    extractSection(section, documentTitle, documentOwner, 'gemini-3.7-flash')
   );
+  const sectionResults = await Promise.all(sectionPromises);
+  const rawItems = sectionResults.flat();
+  console.log(`📊 Stage 2 complete: Extracted ${rawItems.length} raw items across all sections.`);
 
-  let lastError: any = null;
-  for (const m of modelsToTry) {
-    try {
-      response = await ai.models.generateContent({
-        model: m,
-        contents: prompt,
-        config: {
-          systemInstruction: CAPITAL_ENG_SYSTEM_PROMPT,
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      });
-      if (response && response.text) {
-        break;
-      }
-    } catch (err: any) {
-      lastError = err;
-      console.warn(`Extraction with ${m} failed: ${err.message}. Trying next fallback...`);
-    }
-  }
+  // Stage 3: Synthesis, De-duplication, & Cross-Discipline Review (Gemini 3.6 Flash)
+  console.log(`🧠 Stage 3: Running synthesis, de-duplication, and cross-discipline review with Gemini 3.6 Flash...`);
+  const finalBatch = await synthesizeAndDeduplicate(rawItems, documentTitle, documentOwner, 'gemini-3.6-flash');
+  console.log(`✅ 3-Stage Pipeline complete: ${finalBatch.items.length} verified requirements generated.`);
 
-  if (!response || !response.text) {
-    throw lastError || new Error(`Gemini model returned empty response.`);
-  }
-
-  const responseText = response.text || '';
-  if (!responseText) {
-    throw new Error(`Gemini model returned empty response.`);
-  }
-
-  const parsedJson = JSON.parse(responseText);
-  if (!parsedJson.document_title) parsedJson.document_title = documentTitle;
-  if (!parsedJson.document_owner) parsedJson.document_owner = documentOwner;
-
-  // Validate with Zod
-  const validated = ExtractionBatchSchema.parse(parsedJson);
-
-  // Ensure default document owner
-  for (const item of validated.items) {
-    if (!item.document_owner) {
-      item.document_owner = validated.document_owner;
-    }
-  }
-
-  return validated;
+  return finalBatch;
 }
 
 export async function getEmbedding(

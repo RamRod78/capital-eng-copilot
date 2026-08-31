@@ -37,7 +37,7 @@ ingestRouter.post('/parse-file', async (c) => {
 // Run Gemini extraction on text
 ingestRouter.post('/extract', async (c) => {
   try {
-    const { content, documentTitle, documentOwner, model } = await c.req.json();
+    const { content, documentTitle, documentOwner } = await c.req.json();
     if (!content || !content.trim()) {
       return c.json({ error: 'Content is required for extraction' }, 400);
     }
@@ -45,8 +45,7 @@ ingestRouter.post('/extract', async (c) => {
     const batch = await extractRequirementsFromText(
       content,
       documentTitle || 'Engineering Specification',
-      documentOwner || 'General Engineering SME',
-      model
+      documentOwner || 'General Engineering SME'
     );
 
     return c.json(batch);
