@@ -13,8 +13,14 @@ import { extractionsRouter } from './routes/extractions.js';
 import { scopingRouter } from './routes/scoping.js';
 import { feedbackRouter } from './routes/feedback.js';
 import { searchRouter } from './routes/search.js';
+import { initDatabase } from './db/init.js';
 
 dotenv.config();
+
+// Ensure database schema and extensions are initialized
+initDatabase().catch((err) => {
+  console.error('Failed to initialize database schema:', err);
+});
 
 const app = new Hono();
 
