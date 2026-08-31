@@ -42,8 +42,8 @@ export default function App() {
             <HardHat className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="font-bold text-sm tracking-tight text-white leading-tight">
-              Capital Design Decision Engine
+            <h1 className="font-extrabold text-xl tracking-wider bg-gradient-to-r from-white via-slate-100 to-brand-300 bg-clip-text text-transparent leading-none">
+              CDDE
             </h1>
             <p className="text-xs text-slate-400 font-medium mt-0.5">AI Prototype</p>
           </div>
