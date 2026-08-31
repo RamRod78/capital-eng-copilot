@@ -53,6 +53,21 @@ export default function Dashboard() {
         </Link>
       </div>
 
+      {/* Important Prototype Warning Banner */}
+      <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3.5 shadow-sm text-amber-950">
+        <div className="p-2 bg-amber-200/80 rounded-lg text-amber-800 shrink-0 mt-0.5">
+          <AlertTriangle className="w-5 h-5" />
+        </div>
+        <div className="space-y-1 text-sm">
+          <p className="font-bold uppercase tracking-wider text-xs text-amber-900">
+            Important Notice
+          </p>
+          <p className="font-medium text-amber-900 leading-relaxed">
+            This is a prototype system that is meant for demonstration purposes only. Only use supplied test documents. <span className="font-bold text-rose-700">DO NOT upload corporate confidential information!</span>
+          </p>
+        </div>
+      </div>
+
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <div className="bg-white p-5 rounded-xl border border-slate-200/80 shadow-sm hover:shadow-md transition-shadow">
