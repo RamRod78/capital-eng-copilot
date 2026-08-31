@@ -285,7 +285,7 @@ export const ProjectScopeInputSchema = z.object({
   operating_conditions: z.string().nullable().optional(),
   disciplines: z.array(z.string()).default([]),
   scope_description: z.string().min(10, 'Scope description must be at least 10 characters'),
-  target_delivery_format: z.string().optional().default('Vendor RFP Document'),
+  target_delivery_format: z.string().optional(),
 });
 export type ProjectScopeInput = z.infer<typeof ProjectScopeInputSchema>;
 
