@@ -218,6 +218,12 @@ export const SearchResultSchema = z.object({
   engineering_discipline: z.string(),
   compliance_level: z.string(),
   document_owner: z.string().nullable().optional(),
+  section_title: z.string().nullable().optional(),
+  document_title: z.string().nullable().optional(),
+  document_number: z.string().nullable().optional(),
+  document_version: z.string().nullable().optional(),
+  document_type: z.string().nullable().optional(),
+  document_date: z.string().nullable().optional(),
   status: z.string(),
   similarity_score: z.number(),
 });

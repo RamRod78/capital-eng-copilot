@@ -26,11 +26,18 @@ searchRouter.post('/', async (c) => {
             e.category,
             e.engineering_discipline,
             e.compliance_level,
-            e.document_owner,
+            COALESCE(e.document_owner, d.owner_sme, 'Engineering Lead') AS document_owner,
+            e.section_title,
+            d.filename AS document_title,
+            d.document_number,
+            d.version AS document_version,
+            d.document_type,
+            d.document_date,
             e.status,
             1 - (re.embedding <=> $1) AS similarity_score
           FROM requirement_embeddings re
           JOIN extractions e ON e.id = re.extraction_id
+          LEFT JOIN documents d ON d.id = e.document_id
           WHERE 1=1
         `;
         const params: any[] = [`[${vector.join(',')}]`];
@@ -54,18 +61,25 @@ searchRouter.post('/', async (c) => {
         // Fallback text match
         let sqlQuery = `
           SELECT 
-            id AS extraction_id,
-            requirement_code,
-            requirement_text,
-            COALESCE(item_type, 'Requirement') AS item_type,
-            category,
-            engineering_discipline,
-            compliance_level,
-            document_owner,
-            status,
+            e.id AS extraction_id,
+            e.requirement_code,
+            e.requirement_text,
+            COALESCE(e.item_type, 'Requirement') AS item_type,
+            e.category,
+            e.engineering_discipline,
+            e.compliance_level,
+            COALESCE(e.document_owner, d.owner_sme, 'Engineering Lead') AS document_owner,
+            e.section_title,
+            d.filename AS document_title,
+            d.document_number,
+            d.version AS document_version,
+            d.document_type,
+            d.document_date,
+            e.status,
             1.0 AS similarity_score
-          FROM extractions
-          WHERE requirement_text ILIKE $1
+          FROM extractions e
+          LEFT JOIN documents d ON d.id = e.document_id
+          WHERE e.requirement_text ILIKE $1
           LIMIT $2;
         `;
         const res = await client.query(sqlQuery, [`%${query}%`, limit]);

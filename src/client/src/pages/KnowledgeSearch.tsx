@@ -7,6 +7,7 @@ import {
   Loader2,
   FileCheck,
   Tag,
+  FileText,
 } from 'lucide-react';
 import { searchSimilarRequirements } from '../api/client.js';
 import { SearchResult } from '@shared/schemas';
@@ -182,13 +183,55 @@ export default function KnowledgeSearch() {
                     {r.requirement_text}
                   </p>
 
-                  <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
-                    <span>
-                      <strong>Owner:</strong> {r.document_owner || 'Engineering Lead'}
-                    </span>
-                    <span>
-                      <strong>Status:</strong> {r.status}
-                    </span>
+                  <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-y-2 text-xs text-slate-500">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                      {(r.document_number || r.document_title) && (
+                        <div className="flex items-center gap-1.5 text-slate-700">
+                          <FileText className="w-3.5 h-3.5 text-brand-600 flex-shrink-0" />
+                          <span>
+                            <strong className="text-slate-900">Source:</strong>{' '}
+                            {r.document_number ? (
+                              <>
+                                <span className="font-mono font-bold text-brand-700">{r.document_number}</span>
+                                {r.document_title && <span className="text-slate-600"> ({r.document_title})</span>}
+                              </>
+                            ) : (
+                              <span className="text-slate-800 font-semibold">{r.document_title}</span>
+                            )}
+                          </span>
+                          {r.document_version && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-mono font-bold">
+                              Rev {r.document_version}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {r.section_title && (
+                        <span className="text-slate-600">
+                          <strong className="text-slate-800">Section:</strong> {r.section_title}
+                        </span>
+                      )}
+
+                      <span>
+                        <strong className="text-slate-800">Owner:</strong> {r.document_owner || 'Engineering Lead'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500 font-medium">Status:</span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                          r.status === 'Approved'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : r.status === 'Rejected'
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {r.status}
+                      </span>
+                    </div>
                   </div>
                 </div>
               ))}

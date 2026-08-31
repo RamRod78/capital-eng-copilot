@@ -7,6 +7,7 @@ import {
   ProjectScopeInputSchema,
   RFPPackageSchema,
   DocumentRevisionFlagSchema,
+  SearchResultSchema,
   getDisciplineCode,
   formatRequirementCode,
   assignUniqueRequirementCodes,
@@ -128,6 +129,34 @@ describe('Zod Schema Validation', () => {
     expect(parsed.document_number).toBe('SPEC-ENG-2026-001');
     expect(parsed.document_version).toBe('2.1');
     expect(parsed.document_title).toBe('Pressure Vessels & Piping Standard');
+  });
+
+  it('validates SearchResultSchema with source document details', () => {
+    const searchResult = {
+      extraction_id: '123e4567-e89b-12d3-a456-426614174000',
+      requirement_code: 'REQ-MEC-00000001',
+      requirement_text: 'Centrifugal pumps shall comply with API 610 12th edition.',
+      item_type: 'Requirement',
+      category: 'Rotating Equipment',
+      engineering_discipline: 'Mechanical',
+      compliance_level: 'Mandatory',
+      document_owner: 'Rotating Equipment Lead',
+      section_title: '6.1 Pump Design and Nozzle Loads',
+      document_title: 'API 610 Centrifugal Pumps Spec',
+      document_number: 'API-610-ED12',
+      document_version: '12.0',
+      document_type: 'Standard',
+      document_date: '2026-08-31',
+      status: 'Approved',
+      similarity_score: 0.942,
+    };
+    const parsed = SearchResultSchema.parse(searchResult);
+    expect(parsed.document_number).toBe('API-610-ED12');
+    expect(parsed.document_title).toBe('API 610 Centrifugal Pumps Spec');
+    expect(parsed.document_version).toBe('12.0');
+    expect(parsed.section_title).toBe('6.1 Pump Design and Nozzle Loads');
+    expect(parsed.document_owner).toBe('Rotating Equipment Lead');
+    expect(parsed.similarity_score).toBe(0.942);
   });
 
   describe('Unique Requirement Code Generation & Formatting', () => {
