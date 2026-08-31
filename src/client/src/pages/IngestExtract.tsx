@@ -248,7 +248,7 @@ export default function IngestExtract() {
       {
         stageId: 3,
         title: 'Stage 3: Synthesis & De-duplication',
-        model: 'Gemini 3.1 Pro',
+        model: 'Gemini 2.5 Pro',
         description: 'De-duplicates clauses, analyzes cross-discipline conflicts & assigns sequence IDs.',
         status: stage3Completed ? 'completed' : currentStage === 3 ? 'running' : 'pending',
         statusMessage: latestStage3?.message || 'Pending Stage 2 candidate items...',
@@ -496,7 +496,7 @@ export default function IngestExtract() {
               <div className="bg-brand-950/60 p-3 rounded-lg border border-brand-800/80">
                 <span className="font-semibold text-brand-300 block text-xs">Stage 3: Synthesis & De-duplication</span>
                 <span className="text-slate-300 text-[11px] mt-0.5 block">
-                  Consolidates items, eliminates cross-boundary duplicates, and performs cross-discipline conflict analysis via <strong>Gemini 3.1 Pro</strong>.
+                  Consolidates items, eliminates cross-boundary duplicates, and performs cross-discipline conflict analysis via <strong>Gemini 2.5 Pro</strong>.
                 </span>
               </div>
             </div>

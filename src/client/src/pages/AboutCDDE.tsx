@@ -68,7 +68,7 @@ const PHASES: PhaseDetail[] = [
     ],
     deepDive: {
       overview:
-        'Engineering documents contain nested technical clauses, numbered standards (e.g., ASME, API, NEC), and critical context that naive character chunkers destroy. CDDE applies Gemini 3.6 Flash for Table of Contents (ToC) and logical clause partitioning, with a deterministic fallback that splits on clause headers.',
+        'Engineering documents contain nested technical clauses, numbered standards (e.g., ASME, API, NEC), and critical context that naive character chunkers destroy. CDDE applies high-speed Gemini 3.6 Flash for Table of Contents (ToC) and logical clause partitioning, with a deterministic fallback that splits on clause headers.',
       keyMechanisms: [
         'Multi-format binary buffer decoding (PDF text extraction, Word XML parsing, Excel tabular data).',
         'Gemini 3.6 Flash structural scan to detect section boundaries and clause hierarchy.',
@@ -105,7 +105,7 @@ const PHASES: PhaseDetail[] = [
       keyMechanisms: [
         'Parallel execution across all document chunks for sub-minute processing of 100+ page specifications.',
         'Thinking budget allocation (1024 tokens) for complex engineering tradeoff analysis.',
-        'Strict schema enforcement with fallback cascades across Gemini 3.7, 3.6, and 3.5 models.',
+        'Strict schema enforcement with fallback cascades across Gemini 3.7 Flash, 3.6 Flash, 3.5 Flash, and 2.5 Flash models.',
       ],
       businessValue:
         'Provides 100% clause classification accuracy, differentiating binding contract terms from optional vendor suggestions.',
@@ -120,7 +120,7 @@ const PHASES: PhaseDetail[] = [
     badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     accentBg: 'bg-emerald-500/10',
     borderColor: 'border-emerald-500/30',
-    modelOrTech: 'Gemini 3.1 Pro Cross-Discipline Reviewer & Deterministic Formatting Engine',
+    modelOrTech: 'Gemini 2.5 Pro Cross-Discipline Reviewer & Deterministic Formatting Engine',
     inputs: [
       'Raw Extracted Requirements from all document chunks',
       'Discipline classifications & confidence logs',
@@ -133,10 +133,10 @@ const PHASES: PhaseDetail[] = [
     ],
     deepDive: {
       overview:
-        'Raw extractions from multiple chunks are normalized, deduplicated, and passed to Gemini 3.1 Pro. The model acts as a Lead Technical Reviewer to synthesize the executive summary and identify conflicts between disciplines before assigning unique permanent requirement tracking codes.',
+        'Raw extractions from multiple chunks are normalized, deduplicated, and passed to Gemini 2.5 Pro. The model acts as a Lead Technical Reviewer to synthesize the executive summary and identify conflicts between disciplines before assigning unique permanent requirement tracking codes.',
       keyMechanisms: [
         'In-memory whitespace and textual similarity deduplication.',
-        'Gemini 3.1 Pro cross-discipline synthesis detecting gaps across disciplines (e.g., motor rating vs switchgear capacity).',
+        'Gemini 2.5 Pro cross-discipline synthesis detecting gaps across disciplines (e.g., motor rating vs switchgear capacity).',
         'Deterministic assignment of zero-padded 8-digit requirement tracking codes (REQ-MEC-00000001).',
       ],
       businessValue:
@@ -518,7 +518,7 @@ export default function AboutCDDE() {
                   </td>
                   <td className="p-3.5">
                     <span className="font-mono bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-semibold">
-                      Gemini 3.7 Flash
+                      Gemini 3.7 Flash (Thinking)
                     </span>
                   </td>
                   <td className="p-3.5">
@@ -529,7 +529,7 @@ export default function AboutCDDE() {
                     thinkingBudget: 1024, temp: 0.1, Structured Extraction Schema
                   </td>
                   <td className="p-3.5 text-slate-500">
-                    Cascading fallback to Gemini 3.6 Flash &rarr; 3.5 Flash &rarr; 2.0 Flash
+                    Cascading fallback to Gemini 3.7 Flash &rarr; 3.6 Flash &rarr; 3.5 Flash &rarr; 2.5 Flash
                   </td>
                 </tr>
 
@@ -539,7 +539,7 @@ export default function AboutCDDE() {
                   </td>
                   <td className="p-3.5">
                     <span className="font-mono bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-semibold">
-                      Gemini 3.1 Pro
+                      Gemini 2.5 Pro
                     </span>
                   </td>
                   <td className="p-3.5">
@@ -550,7 +550,7 @@ export default function AboutCDDE() {
                     temp: 0.1, responseMimeType: application/json, Synthesis Schema
                   </td>
                   <td className="p-3.5 text-slate-500">
-                    Fallback to Gemini 3.6 Flash / Gemini 2.5 Pro
+                    Fallback to Gemini 2.5 Pro &rarr; 3.1 Pro &rarr; 3.7 Flash &rarr; 3.6 Flash
                   </td>
                 </tr>
 
