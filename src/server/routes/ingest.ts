@@ -51,6 +51,7 @@ ingestRouter.post('/extract', async (c) => {
 
     return c.json(batch);
   } catch (err: any) {
+    console.error('Extraction failed with error:', err);
     return c.json({ error: err.message || 'Extraction failed' }, 500);
   }
 });

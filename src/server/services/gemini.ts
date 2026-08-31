@@ -60,7 +60,7 @@ export async function extractRequirementsFromText(
   content: string,
   documentTitle = 'Engineering Specification',
   documentOwner = 'General Engineering SME',
-  model = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+  model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
 ): Promise<ExtractionBatch> {
   if (!content || !content.trim()) {
     throw new Error('Document content is empty; cannot extract requirements.');
@@ -69,15 +69,33 @@ export async function extractRequirementsFromText(
   const ai = getGeminiClient();
   const prompt = `Analyze the following capital engineering document and extract all requirements, recommendations, and guidelines.\n\nDocument Title: ${documentTitle}\nAssigned Document Owner: ${documentOwner}\n\n--- DOCUMENT CONTENT ---\n${content.trim()}\n--- END OF CONTENT ---`;
 
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      systemInstruction: CAPITAL_ENG_SYSTEM_PROMPT,
-      responseMimeType: 'application/json',
-      temperature: 0.1,
-    },
-  });
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        systemInstruction: CAPITAL_ENG_SYSTEM_PROMPT,
+        responseMimeType: 'application/json',
+        temperature: 0.1,
+      },
+    });
+  } catch (err: any) {
+    console.warn(`Extraction with ${model} failed: ${err.message}. Trying fallback to gemini-1.5-flash...`);
+    if (model !== 'gemini-1.5-flash') {
+      response = await ai.models.generateContent({
+        model: 'gemini-1.5-flash',
+        contents: prompt,
+        config: {
+          systemInstruction: CAPITAL_ENG_SYSTEM_PROMPT,
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      });
+    } else {
+      throw err;
+    }
+  }
 
   const responseText = response.text || '';
   if (!responseText) {
@@ -109,10 +127,22 @@ export async function getEmbedding(
 
   try {
     const ai = getGeminiClient();
-    const response = await ai.models.embedContent({
-      model,
-      contents: text,
-    });
+    let response;
+    try {
+      response = await ai.models.embedContent({
+        model,
+        contents: text,
+      });
+    } catch (primaryErr: any) {
+      if (model !== 'embedding-001') {
+        response = await ai.models.embedContent({
+          model: 'embedding-001',
+          contents: text,
+        });
+      } else {
+        throw primaryErr;
+      }
+    }
 
     const resAny = response as any;
     if (resAny?.embedding?.values) {
@@ -122,8 +152,8 @@ export async function getEmbedding(
       return resAny.embeddings[0].values;
     }
     return [];
-  } catch (error) {
-    console.error('Error generating embedding:', error);
+  } catch (error: any) {
+    console.warn(`Vector embedding unavailable (${error.message || error}). Falling back to text search.`);
     return [];
   }
 }
