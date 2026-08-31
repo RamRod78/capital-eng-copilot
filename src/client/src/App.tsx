@@ -10,6 +10,7 @@ import {
   Search,
   HardHat,
   Database,
+  Sparkles,
   CheckCircle2,
   AlertTriangle,
   XCircle,
@@ -69,7 +70,10 @@ export default function App() {
             )}
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-slate-400">Gemini AI API</span>
+            <span className="text-slate-400 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-slate-500" />
+              Gemini AI API
+            </span>
             {stats?.geminiConfigured ? (
               <span className="inline-flex items-center gap-1 text-emerald-400 font-medium">
                 <CheckCircle2 className="w-3 h-3" /> Ready
