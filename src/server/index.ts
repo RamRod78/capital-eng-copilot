@@ -13,6 +13,7 @@ import { extractionsRouter } from './routes/extractions.js';
 import { scopingRouter } from './routes/scoping.js';
 import { feedbackRouter } from './routes/feedback.js';
 import { searchRouter } from './routes/search.js';
+import { adminRouter } from './routes/admin.js';
 import { initDatabase } from './db/init.js';
 
 dotenv.config();
@@ -35,6 +36,7 @@ app.route('/api/extractions', extractionsRouter);
 app.route('/api/scoping', scopingRouter);
 app.route('/api/feedback', feedbackRouter);
 app.route('/api/search', searchRouter);
+app.route('/api/admin', adminRouter);
 
 // Healthcheck
 app.get('/_stcore/health', (c) => c.text('OK'));

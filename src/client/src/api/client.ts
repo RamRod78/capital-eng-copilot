@@ -208,3 +208,22 @@ export async function searchSimilarRequirements(data: {
   }
   return res.json();
 }
+
+export async function fetchAdminCounts() {
+  const res = await fetch(`${API_BASE}/admin/counts`);
+  if (!res.ok) throw new Error('Failed to fetch table counts');
+  return res.json();
+}
+
+export async function purgeDatabaseRecords(target: 'all' | 'extractions' | 'scopes' | 'feedback') {
+  const res = await fetch(`${API_BASE}/admin/purge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Purge failed');
+  }
+  return res.json();
+}

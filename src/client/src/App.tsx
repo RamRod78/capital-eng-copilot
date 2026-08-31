@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
+  ShieldAlert,
 } from 'lucide-react';
 import { fetchStats } from './api/client.js';
 
@@ -22,6 +23,7 @@ import ReviewQueue from './pages/ReviewQueue.js';
 import ProjectScoping from './pages/ProjectScoping.js';
 import LessonsLearned from './pages/LessonsLearned.js';
 import KnowledgeSearch from './pages/KnowledgeSearch.js';
+import Admin from './pages/Admin.js';
 
 export default function App() {
   const { data: stats } = useQuery({
@@ -178,6 +180,22 @@ export default function App() {
             <Search className="w-4 h-4 shrink-0" />
             <span>5. Knowledge Search</span>
           </NavLink>
+
+          <div className="pt-3 mt-3 border-t border-slate-800/80">
+            <NavLink
+              to="/admin"
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                  isActive
+                    ? 'bg-rose-700 text-white shadow-md shadow-rose-900/30'
+                    : 'text-slate-400 hover:bg-rose-950/40 hover:text-rose-300'
+                }`
+              }
+            >
+              <ShieldAlert className="w-4 h-4 shrink-0" />
+              <span>Admin & Maintenance</span>
+            </NavLink>
+          </div>
         </nav>
 
         {/* Footer */}
@@ -195,6 +213,7 @@ export default function App() {
           <Route path="/scoping" element={<ProjectScoping />} />
           <Route path="/lessons" element={<LessonsLearned />} />
           <Route path="/search" element={<KnowledgeSearch />} />
+          <Route path="/admin" element={<Admin />} />
         </Routes>
       </main>
     </div>
