@@ -10,7 +10,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { searchSimilarRequirements } from '../api/client.js';
-import { SearchResult } from '@shared/schemas';
+import { SearchResult, EngineeringDisciplineValues } from '@shared/schemas';
 
 export default function KnowledgeSearch() {
   const [query, setQuery] = useState('Centrifugal pumps shall comply with API 610');
@@ -77,15 +77,9 @@ export default function KnowledgeSearch() {
               className="w-full rounded-lg border border-slate-300 p-2.5 text-xs bg-white focus:ring-1 focus:ring-brand-500"
             >
               <option>All</option>
-              <option>Mechanical</option>
-              <option>Piping</option>
-              <option>Electrical</option>
-              <option>I&C</option>
-              <option>Civil/Structural</option>
-              <option>Process</option>
-              <option>HSE</option>
-              <option>Quality</option>
-              <option>General</option>
+              {EngineeringDisciplineValues.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
             </select>
           </div>
 

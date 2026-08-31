@@ -494,18 +494,7 @@ export interface DisciplineGroup<T> {
   items: T[];
 }
 
-export const ORDERED_DISCIPLINES = [
-  'Mechanical',
-  'Piping',
-  'Electrical',
-  'I&C',
-  'Process',
-  'Civil/Structural',
-  'HSE',
-  'Telecom',
-  'Quality',
-  'General',
-] as const;
+export const ORDERED_DISCIPLINES = EngineeringDisciplineValues;
 
 export function sortRequirementItems<T extends { requirement_code?: string | null; engineering_discipline?: string | null }>(
   items: T[]

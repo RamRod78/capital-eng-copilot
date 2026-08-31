@@ -47,18 +47,10 @@ import {
   SearchResult,
   groupRequirementsByDiscipline,
   sortRequirementItems,
+  EngineeringDisciplineValues,
 } from '@shared/schemas';
 
-const ALL_DISCIPLINES = [
-  'Mechanical',
-  'Piping',
-  'Electrical',
-  'I&C',
-  'Process',
-  'Civil/Structural',
-  'HSE',
-  'Telecom',
-];
+const ALL_DISCIPLINES = EngineeringDisciplineValues;
 
 const SAMPLE_PROJECTS: ProjectCreateInput[] = [
   {
@@ -167,7 +159,7 @@ export default function ProjectScoping() {
     setFacilityType('');
     setOperatingConditions('');
     setScopeDescription('');
-    setSelectedDisciplines(['Mechanical', 'Piping', 'Electrical', 'I&C', 'Process', 'HSE']);
+    setSelectedDisciplines([...EngineeringDisciplineValues]);
     setFormError(null);
     setIsAddModalOpen(true);
   };

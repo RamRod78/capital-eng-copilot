@@ -25,7 +25,7 @@ import {
   bulkUpdateExtractions,
   createDocumentFlag,
 } from '../api/client.js';
-import { ExtractionRecord } from '@shared/schemas';
+import { ExtractionRecord, EngineeringDisciplineValues } from '@shared/schemas';
 
 const DEFAULT_REVIEWERS = [
   'All',
@@ -338,15 +338,9 @@ export default function ReviewQueue() {
               className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white focus:ring-1 focus:ring-brand-500 font-medium"
             >
               <option>All</option>
-              <option>Mechanical</option>
-              <option>Piping</option>
-              <option>Electrical</option>
-              <option>I&C</option>
-              <option>Civil/Structural</option>
-              <option>Process</option>
-              <option>HSE</option>
-              <option>Quality</option>
-              <option>General</option>
+              {EngineeringDisciplineValues.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
             </select>
           </div>
 
@@ -800,15 +794,9 @@ export default function ReviewQueue() {
                     onChange={(e) => setEditDiscipline(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white"
                   >
-                    <option>Mechanical</option>
-                    <option>Piping</option>
-                    <option>Electrical</option>
-                    <option>I&C</option>
-                    <option>Civil/Structural</option>
-                    <option>Process</option>
-                    <option>HSE</option>
-                    <option>Quality</option>
-                    <option>General</option>
+                    {EngineeringDisciplineValues.map((d) => (
+                      <option key={d}>{d}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
