@@ -287,6 +287,7 @@ export default function ReviewQueue() {
       } else {
         updated[id] = true;
       }
+      return updated;
     });
   };
 
