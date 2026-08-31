@@ -397,3 +397,16 @@ export async function purgeDatabaseRecords(
   }
   return res.json();
 }
+
+export async function reindexAdminEmbeddings() {
+  const res = await fetch(`${API_BASE}/admin/reindex-embeddings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to re-index embeddings');
+  }
+  return res.json();
+}
+

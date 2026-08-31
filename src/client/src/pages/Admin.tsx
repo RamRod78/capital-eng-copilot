@@ -18,7 +18,7 @@ import {
   X,
   AlertOctagon,
 } from 'lucide-react';
-import { fetchAdminCounts, purgeDatabaseRecords } from '../api/client.js';
+import { fetchAdminCounts, purgeDatabaseRecords, reindexAdminEmbeddings } from '../api/client.js';
 
 type PurgeTarget = 'all' | 'extractions' | 'projects' | 'scoping_items' | 'feedback';
 
@@ -115,11 +115,23 @@ export default function Admin() {
     },
   });
 
+  // Mutation for re-indexing embeddings
+  const reindexMutation = useMutation({
+    mutationFn: () => reindexAdminEmbeddings(),
+    onSuccess: (data) => {
+      setSuccessMessage(data.message || 'Embeddings successfully indexed.');
+      queryClient.invalidateQueries({ queryKey: ['adminCounts'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
+    },
+  });
+
   const handleConfirmPurge = () => {
     if (!activePurge) return;
     setSuccessMessage(null);
     purgeMutation.mutate(activePurge.target);
   };
+
+  const missingEmbeddings = (counts?.extractions ?? 0) - (counts?.requirement_embeddings ?? 0);
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -134,15 +146,32 @@ export default function Admin() {
             Monitor table record volumes, manage storage, and purge dataset records.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => refetch()}
-          disabled={isRefetching}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefetching ? 'animate-spin' : ''}`} />
-          Refresh Table Counts
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          {missingEmbeddings > 0 && (
+            <button
+              type="button"
+              onClick={() => reindexMutation.mutate()}
+              disabled={reindexMutation.isPending}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
+            >
+              {reindexMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Cpu className="w-4 h-4" />
+              )}
+              Index Missing Embeddings ({missingEmbeddings})
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefetching ? 'animate-spin' : ''}`} />
+            Refresh Table Counts
+          </button>
+        </div>
       </div>
 
       {/* Success Notification Banner */}

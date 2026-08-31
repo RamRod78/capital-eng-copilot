@@ -618,39 +618,47 @@ export async function extractRequirementsFromText(
 
 export async function getEmbedding(
   text: string,
-  model = process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004'
+  model = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001'
 ): Promise<number[]> {
   if (!text || !text.trim()) return [];
 
-  try {
-    const ai = getGeminiClient();
-    let response;
-    try {
-      response = await ai.models.embedContent({
-        model,
-        contents: text,
-      });
-    } catch (primaryErr: any) {
-      if (model !== 'embedding-001') {
-        response = await ai.models.embedContent({
-          model: 'embedding-001',
-          contents: text,
-        });
-      } else {
-        throw primaryErr;
-      }
-    }
+  const candidateModels = [
+    model,
+    'gemini-embedding-001',
+    'gemini-embedding-2',
+    'text-embedding-004',
+  ].filter((m, i, arr) => arr.indexOf(m) === i);
 
-    const resAny = response as any;
-    if (resAny?.embedding?.values) {
-      return resAny.embedding.values;
+  for (const m of candidateModels) {
+    try {
+      const ai = getGeminiClient();
+      const response = await ai.models.embedContent({
+        model: m,
+        contents: text,
+        config: {
+          outputDimensionality: 768,
+        },
+      });
+
+      const resAny = response as any;
+      let values: number[] | undefined;
+      if (resAny?.embedding?.values) {
+        values = resAny.embedding.values;
+      } else if (resAny?.embeddings?.[0]?.values) {
+        values = resAny.embeddings[0].values;
+      }
+
+      if (values && values.length > 0) {
+        if (values.length > 768) {
+          return values.slice(0, 768);
+        }
+        return values;
+      }
+    } catch (err: any) {
+      console.warn(`Embedding attempt with model "${m}" failed: ${err.message || err}. Trying next fallback...`);
     }
-    if (resAny?.embeddings?.[0]?.values) {
-      return resAny.embeddings[0].values;
-    }
-    return [];
-  } catch (error: any) {
-    console.warn(`Vector embedding unavailable (${error.message || error}). Falling back to text search.`);
-    return [];
   }
+
+  console.warn('Vector embedding unavailable across all candidate models. Falling back to text search.');
+  return [];
 }

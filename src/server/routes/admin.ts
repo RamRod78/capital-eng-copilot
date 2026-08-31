@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { pool } from '../db/index.js';
+import { getEmbedding } from '../services/gemini.js';
 
 export const adminRouter = new Hono();
 
@@ -118,3 +119,45 @@ adminRouter.post('/purge', async (c) => {
     client.release();
   }
 });
+
+// Re-index missing pgvector embeddings for extracted requirements
+adminRouter.post('/reindex-embeddings', async (c) => {
+  const client = await pool.connect();
+  try {
+    const unindexed = await client.query(`
+      SELECT e.id, e.requirement_text 
+      FROM extractions e
+      LEFT JOIN requirement_embeddings re ON e.id = re.extraction_id
+      WHERE re.id IS NULL AND e.requirement_text IS NOT NULL AND TRIM(e.requirement_text) != '';
+    `);
+
+    let indexedCount = 0;
+    for (const row of unindexed.rows) {
+      try {
+        const vector = await getEmbedding(row.requirement_text);
+        if (vector && vector.length === 768) {
+          await client.query(
+            `INSERT INTO requirement_embeddings (extraction_id, chunk_text, embedding) VALUES ($1, $2, $3);`,
+            [row.id, row.requirement_text, `[${vector.join(',')}]`]
+          );
+          indexedCount++;
+        }
+      } catch (embErr) {
+        console.error(`Failed to generate embedding for extraction ${row.id}:`, embErr);
+      }
+    }
+
+    return c.json({
+      success: true,
+      unindexedCount: unindexed.rows.length,
+      indexedCount,
+      message: `Successfully generated ${indexedCount} of ${unindexed.rows.length} vector embeddings.`,
+    });
+  } catch (err: any) {
+    console.error('Re-indexing embeddings failed:', err);
+    return c.json({ error: err.message || 'Failed to re-index embeddings' }, 500);
+  } finally {
+    client.release();
+  }
+});
+
