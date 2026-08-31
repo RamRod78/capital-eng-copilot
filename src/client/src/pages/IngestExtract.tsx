@@ -21,6 +21,7 @@ export default function IngestExtract() {
   const [docType, setDocType] = useState('Standard / Specification');
   const [docOwner, setDocOwner] = useState('Mechanical SME');
   const [docVersion, setDocVersion] = useState('Rev 2.1');
+  const [model, setModel] = useState('gemini-3.6-flash');
   const [rawText, setRawText] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -57,6 +58,7 @@ export default function IngestExtract() {
         content: rawText,
         documentTitle: docTitle,
         documentOwner: docOwner,
+        model,
       }),
     onSuccess: (data) => {
       setExtractionResult(data);
@@ -215,25 +217,42 @@ export default function IngestExtract() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
-                Assigned Document Owner / Discipline Lead
-              </label>
-              <select
-                value={docOwner}
-                onChange={(e) => setDocOwner(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white"
-              >
-                <option>Mechanical SME</option>
-                <option>Piping SME</option>
-                <option>Electrical SME</option>
-                <option>I&C Lead</option>
-                <option>Process Lead</option>
-                <option>Civil/Structural SME</option>
-                <option>HSE Lead</option>
-                <option>Quality Manager</option>
-                <option>General Engineering Lead</option>
-              </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
+                  Assigned Document Owner / Discipline Lead
+                </label>
+                <select
+                  value={docOwner}
+                  onChange={(e) => setDocOwner(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white"
+                >
+                  <option>Mechanical SME</option>
+                  <option>Piping SME</option>
+                  <option>Electrical SME</option>
+                  <option>I&C Lead</option>
+                  <option>Process Lead</option>
+                  <option>Civil/Structural SME</option>
+                  <option>HSE Lead</option>
+                  <option>Quality Manager</option>
+                  <option>General Engineering Lead</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
+                  Gemini AI Model
+                </label>
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white"
+                >
+                  <option value="gemini-3.6-flash">Gemini 3.6 Flash (Fast & Accurate)</option>
+                  <option value="gemini-2.0-flash">Gemini 2.0 Flash (Stable)</option>
+                  <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                  <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep Reasoning)</option>
+                </select>
+              </div>
             </div>
 
             <button

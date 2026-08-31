@@ -60,7 +60,7 @@ export async function extractRequirementsFromText(
   content: string,
   documentTitle = 'Engineering Specification',
   documentOwner = 'General Engineering SME',
-  model = process.env.GEMINI_MODEL || 'gemini-2.0-flash'
+  model = process.env.GEMINI_MODEL || 'gemini-3.6-flash'
 ): Promise<ExtractionBatch> {
   if (!content || !content.trim()) {
     throw new Error('Document content is empty; cannot extract requirements.');
@@ -70,21 +70,15 @@ export async function extractRequirementsFromText(
   const prompt = `Analyze the following capital engineering document and extract all requirements, recommendations, and guidelines.\n\nDocument Title: ${documentTitle}\nAssigned Document Owner: ${documentOwner}\n\n--- DOCUMENT CONTENT ---\n${content.trim()}\n--- END OF CONTENT ---`;
 
   let response;
-  try {
-    response = await ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
-        systemInstruction: CAPITAL_ENG_SYSTEM_PROMPT,
-        responseMimeType: 'application/json',
-        temperature: 0.1,
-      },
-    });
-  } catch (err: any) {
-    console.warn(`Extraction with ${model} failed: ${err.message}. Trying fallback to gemini-1.5-flash...`);
-    if (model !== 'gemini-1.5-flash') {
+  const modelsToTry = [model, 'gemini-2.0-flash', 'gemini-1.5-flash'].filter(
+    (m, idx, arr) => arr.indexOf(m) === idx
+  );
+
+  let lastError: any = null;
+  for (const m of modelsToTry) {
+    try {
       response = await ai.models.generateContent({
-        model: 'gemini-1.5-flash',
+        model: m,
         contents: prompt,
         config: {
           systemInstruction: CAPITAL_ENG_SYSTEM_PROMPT,
@@ -92,9 +86,17 @@ export async function extractRequirementsFromText(
           temperature: 0.1,
         },
       });
-    } else {
-      throw err;
+      if (response && response.text) {
+        break;
+      }
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`Extraction with ${m} failed: ${err.message}. Trying next fallback...`);
     }
+  }
+
+  if (!response || !response.text) {
+    throw lastError || new Error(`Gemini model returned empty response.`);
   }
 
   const responseText = response.text || '';
