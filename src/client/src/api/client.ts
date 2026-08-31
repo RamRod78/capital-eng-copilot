@@ -77,13 +77,15 @@ export async function fetchExtractions(params?: {
   status?: string;
   discipline?: string;
   owner?: string;
+  reviewer?: string;
   lowConfidenceOnly?: boolean;
   keyword?: string;
 }): Promise<ExtractionRecord[]> {
   const searchParams = new URLSearchParams();
   if (params?.status) searchParams.append('status', params.status);
   if (params?.discipline) searchParams.append('discipline', params.discipline);
-  if (params?.owner) searchParams.append('owner', params.owner);
+  if (params?.reviewer) searchParams.append('reviewer', params.reviewer);
+  else if (params?.owner) searchParams.append('owner', params.owner);
   if (params?.lowConfidenceOnly) searchParams.append('lowConfidenceOnly', 'true');
   if (params?.keyword) searchParams.append('keyword', params.keyword);
 

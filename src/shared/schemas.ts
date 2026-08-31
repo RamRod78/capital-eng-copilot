@@ -111,6 +111,11 @@ export const ExtractionRecordSchema = z.object({
   sme_comments: z.string().nullable().optional(),
   created_at: z.string().optional(),
   reviewed_at: z.string().nullable().optional(),
+  document_number: z.string().nullable().optional(),
+  document_version: z.string().nullable().optional(),
+  document_title: z.string().nullable().optional(),
+  document_date: z.string().nullable().optional(),
+  document_type: z.string().nullable().optional(),
 });
 export type ExtractionRecord = z.infer<typeof ExtractionRecordSchema>;
 

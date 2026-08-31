@@ -1,15 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  createColumnHelper,
-  flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  getPaginationRowModel,
-  useReactTable,
-  SortingState,
-} from '@tanstack/react-table';
-import {
   ClipboardCheck,
   CheckCircle2,
   XCircle,
@@ -20,10 +11,13 @@ import {
   Check,
   X,
   AlertTriangle,
-  ChevronLeft,
+  ChevronDown,
   ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
+  ChevronsUpDown,
+  FileText,
+  Layers,
+  Sparkles,
+  UserCheck,
 } from 'lucide-react';
 import {
   fetchExtractions,
@@ -33,18 +27,41 @@ import {
 } from '../api/client.js';
 import { ExtractionRecord } from '@shared/schemas';
 
-const columnHelper = createColumnHelper<ExtractionRecord>();
+const DEFAULT_REVIEWERS = [
+  'All',
+  'Senior Mechanical SME',
+  'Mechanical SME',
+  'Piping SME',
+  'Electrical SME',
+  'I&C Lead',
+  'Process Lead',
+  'Civil/Structural SME',
+  'HSE Lead',
+  'Quality Manager',
+  'General Engineering Lead',
+];
+
+interface DocumentGroup {
+  groupKey: string;
+  documentNumber: string;
+  documentVersion: string;
+  documentTitle: string;
+  documentType: string;
+  documentDate?: string;
+  documentOwner?: string;
+  items: ExtractionRecord[];
+}
 
 export default function ReviewQueue() {
   const queryClient = useQueryClient();
 
   const [statusFilter, setStatusFilter] = useState('Pending Review');
   const [disciplineFilter, setDisciplineFilter] = useState('All');
-  const [ownerFilter, setOwnerFilter] = useState('All');
+  const [reviewerFilter, setReviewerFilter] = useState('All');
   const [lowConfidenceOnly, setLowConfidenceOnly] = useState(false);
   const [keyword, setKeyword] = useState('');
-  const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({});
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   // Editing state
   const [editingItem, setEditingItem] = useState<ExtractionRecord | null>(null);
@@ -54,25 +71,68 @@ export default function ReviewQueue() {
   const [editType, setEditType] = useState('');
   const [editCost, setEditCost] = useState('');
   const [editComments, setEditComments] = useState('');
-  const [reviewerName, setReviewerName] = useState('Senior Mechanical SME');
 
   // Flag Modal state
   const [flaggingItem, setFlaggingItem] = useState<ExtractionRecord | null>(null);
   const [flagIssue, setFlagIssue] = useState('');
   const [flagAction, setFlagAction] = useState('Review and Update Standard');
 
+  // Effective SME Reviewer for action logging
+  const activeSigner = reviewerFilter !== 'All' ? reviewerFilter : 'Senior Mechanical SME';
+
   // Fetch extractions query
   const { data: extractions = [], isLoading } = useQuery({
-    queryKey: ['extractions', { statusFilter, disciplineFilter, ownerFilter, lowConfidenceOnly, keyword }],
+    queryKey: ['extractions', { statusFilter, disciplineFilter, reviewerFilter, lowConfidenceOnly, keyword }],
     queryFn: () =>
       fetchExtractions({
         status: statusFilter,
         discipline: disciplineFilter,
-        owner: ownerFilter,
+        reviewer: reviewerFilter,
         lowConfidenceOnly,
         keyword,
       }),
   });
+
+  // Dynamically compute list of SME reviewers
+  const availableReviewers = useMemo(() => {
+    const set = new Set<string>(DEFAULT_REVIEWERS);
+    extractions.forEach((item) => {
+      if (item.sme_reviewer && item.sme_reviewer.trim()) {
+        set.add(item.sme_reviewer.trim());
+      }
+      if (item.document_owner && item.document_owner.trim()) {
+        set.add(item.document_owner.trim());
+      }
+    });
+    return Array.from(set);
+  }, [extractions]);
+
+  // Group requirements by document (unique by document number + revision/version)
+  const documentGroups = useMemo<DocumentGroup[]>(() => {
+    const groupMap = new Map<string, DocumentGroup>();
+
+    for (const item of extractions) {
+      const docNum = (item.document_number && item.document_number.trim()) || (item.document_title ? item.document_title.trim() : 'UNASSIGNED-DOC');
+      const docVer = (item.document_version && item.document_version.trim()) || '1.0';
+      const groupKey = `${docNum}:::${docVer}`;
+
+      if (!groupMap.has(groupKey)) {
+        groupMap.set(groupKey, {
+          groupKey,
+          documentNumber: item.document_number?.trim() || 'No Document Number',
+          documentVersion: item.document_version?.trim() || '1.0',
+          documentTitle: item.document_title?.trim() || item.section_title?.trim() || 'Engineering Document Specification',
+          documentType: item.document_type || 'Standard',
+          documentDate: item.document_date || undefined,
+          documentOwner: item.document_owner || undefined,
+          items: [],
+        });
+      }
+      groupMap.get(groupKey)!.items.push(item);
+    }
+
+    return Array.from(groupMap.values());
+  }, [extractions]);
 
   // Single update mutation
   const updateMutation = useMutation({
@@ -122,7 +182,7 @@ export default function ReviewQueue() {
       id: editingItem.id,
       payload: {
         status: 'Edited',
-        sme_reviewer: reviewerName,
+        sme_reviewer: activeSigner,
         requirement_text: editText,
         engineering_discipline: editDiscipline,
         compliance_level: editCompliance,
@@ -138,7 +198,7 @@ export default function ReviewQueue() {
       id: item.id,
       payload: {
         status: 'Approved',
-        sme_reviewer: reviewerName,
+        sme_reviewer: activeSigner,
         sme_comments: 'Approved by SME during review queue check',
       },
     });
@@ -149,174 +209,80 @@ export default function ReviewQueue() {
       id: item.id,
       payload: {
         status: 'Rejected',
-        sme_reviewer: reviewerName,
+        sme_reviewer: activeSigner,
         sme_comments: 'Rejected by SME during validation',
       },
     });
   };
 
-  // TanStack Table columns definition
-  const columns = useMemo(
-    () => [
-      columnHelper.display({
-        id: 'select',
-        header: ({ table }) => (
-          <input
-            type="checkbox"
-            checked={table.getIsAllPageRowsSelected()}
-            onChange={table.getToggleAllPageRowsSelectedHandler()}
-            className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-          />
-        ),
-        cell: ({ row }) => (
-          <input
-            type="checkbox"
-            checked={row.getIsSelected()}
-            onChange={row.getToggleSelectedHandler()}
-            className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-          />
-        ),
-      }),
-      columnHelper.accessor('requirement_code', {
-        header: 'Code',
-        cell: (info) => (
-          <span className="font-mono font-bold text-brand-700">{info.getValue() || 'REQ'}</span>
-        ),
-      }),
-      columnHelper.accessor('item_type', {
-        header: 'Type',
-        cell: (info) => (
-          <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-800">
-            {info.getValue()}
-          </span>
-        ),
-      }),
-      columnHelper.accessor('engineering_discipline', {
-        header: 'Discipline',
-        cell: (info) => <span className="font-medium">{info.getValue()}</span>,
-      }),
-      columnHelper.accessor('requirement_text', {
-        header: 'Requirement Clause',
-        cell: (info) => (
-          <p className="max-w-md font-normal leading-relaxed text-slate-800 line-clamp-3 hover:line-clamp-none transition-all">
-            {info.getValue()}
-          </p>
-        ),
-      }),
-      columnHelper.accessor('confidence_score', {
-        header: 'Confidence',
-        cell: (info) => {
-          const score = info.getValue() ?? 1.0;
-          const isLow = score < 0.85;
-          return (
-            <div className="space-y-0.5">
-              <span
-                className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${
-                  isLow ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
-                }`}
-              >
-                {(score * 100).toFixed(0)}%
-              </span>
-              {isLow && <span className="block text-[10px] text-rose-600 font-semibold">Low Conf</span>}
-            </div>
-          );
-        },
-      }),
-      columnHelper.accessor('status', {
-        header: 'Status',
-        cell: (info) => {
-          const status = info.getValue();
-          let color = 'bg-slate-100 text-slate-800';
-          if (status === 'Approved') color = 'bg-emerald-100 text-emerald-800';
-          if (status === 'Pending Review') color = 'bg-amber-100 text-amber-800';
-          if (status === 'Rejected') color = 'bg-rose-100 text-rose-800';
-          if (status === 'Edited') color = 'bg-sky-100 text-sky-800';
-          return <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${color}`}>{status}</span>;
-        },
-      }),
-      columnHelper.display({
-        id: 'actions',
-        header: 'Review Actions',
-        cell: ({ row }) => {
-          const item = row.original;
-          return (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => handleApproveSingle(item)}
-                title="Approve Requirement"
-                className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 border border-emerald-200 transition-colors"
-              >
-                <Check className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRejectSingle(item)}
-                title="Reject Requirement"
-                className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleEditClick(item)}
-                title="Edit Clause"
-                className="p-1.5 rounded-lg text-brand-600 hover:bg-brand-50 border border-brand-200 transition-colors"
-              >
-                <Edit3 className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setFlaggingItem(item)}
-                title="Flag Document Revision"
-                className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 border border-amber-200 transition-colors"
-              >
-                <Flag className="w-4 h-4" />
-              </button>
-            </div>
-          );
-        },
-      }),
-    ],
-    [reviewerName]
-  );
-
-  const table = useReactTable({
-    data: extractions,
-    columns,
-    initialState: {
-      pagination: {
-        pageSize: 10,
-      },
-    },
-    state: {
-      sorting,
-      rowSelection,
-    },
-    onSortingChange: setSorting,
-    onRowSelectionChange: setRowSelection,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-  });
-
-  const selectedRows = table.getSelectedRowModel().rows.map((r) => r.original);
+  const selectedCount = Object.values(rowSelection).filter(Boolean).length;
+  const selectedItems = extractions.filter((item) => rowSelection[item.id]);
 
   const handleBulkApprove = () => {
-    if (selectedRows.length === 0) return;
+    if (selectedItems.length === 0) return;
     bulkMutation.mutate({
-      items: selectedRows.map((r) => ({ id: r.id, status: 'Approved' })),
-      reviewer: reviewerName,
+      items: selectedItems.map((r) => ({ id: r.id, status: 'Approved' })),
+      reviewer: activeSigner,
       defaultStatus: 'Approved',
     });
   };
 
   const handleBulkReject = () => {
-    if (selectedRows.length === 0) return;
+    if (selectedItems.length === 0) return;
     bulkMutation.mutate({
-      items: selectedRows.map((r) => ({ id: r.id, status: 'Rejected' })),
-      reviewer: reviewerName,
+      items: selectedItems.map((r) => ({ id: r.id, status: 'Rejected' })),
+      reviewer: activeSigner,
       defaultStatus: 'Rejected',
+    });
+  };
+
+  const toggleGroupCollapse = (groupKey: string) => {
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [groupKey]: !prev[groupKey],
+    }));
+  };
+
+  const expandAll = () => setCollapsedGroups({});
+  const collapseAll = () => {
+    const allCollapsed: Record<string, boolean> = {};
+    documentGroups.forEach((g) => {
+      allCollapsed[g.groupKey] = true;
+    });
+    setCollapsedGroups(allCollapsed);
+  };
+
+  const toggleGroupSelection = (group: DocumentGroup) => {
+    const allSelected = group.items.length > 0 && group.items.every((item) => rowSelection[item.id]);
+    const updated = { ...rowSelection };
+    group.items.forEach((item) => {
+      if (allSelected) {
+        delete updated[item.id];
+      } else {
+        updated[item.id] = true;
+      }
+    });
+    setRowSelection(updated);
+  };
+
+  const toggleSingleRowSelection = (id: string) => {
+    setRowSelection((prev) => {
+      const updated = { ...prev };
+      if (updated[id]) {
+        delete updated[id];
+      } else {
+        updated[id] = true;
+      }
+    });
+  };
+
+  const handleApproveGroupPending = (group: DocumentGroup) => {
+    const pendingItems = group.items.filter((item) => item.status === 'Pending Review');
+    if (pendingItems.length === 0) return;
+    bulkMutation.mutate({
+      items: pendingItems.map((r) => ({ id: r.id, status: 'Approved' })),
+      reviewer: activeSigner,
+      defaultStatus: 'Approved',
     });
   };
 
@@ -339,7 +305,7 @@ export default function ReviewQueue() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white focus:ring-1 focus:ring-brand-500"
+              className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white focus:ring-1 focus:ring-brand-500 font-medium"
             >
               <option>All</option>
               <option>Pending Review</option>
@@ -354,7 +320,7 @@ export default function ReviewQueue() {
             <select
               value={disciplineFilter}
               onChange={(e) => setDisciplineFilter(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white focus:ring-1 focus:ring-brand-500"
+              className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white focus:ring-1 focus:ring-brand-500 font-medium"
             >
               <option>All</option>
               <option>Mechanical</option>
@@ -370,13 +336,20 @@ export default function ReviewQueue() {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Active SME Reviewer</label>
-            <input
-              type="text"
-              value={reviewerName}
-              onChange={(e) => setReviewerName(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:ring-1 focus:ring-brand-500"
-            />
+            <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
+              Active SME Reviewer
+            </label>
+            <select
+              value={reviewerFilter}
+              onChange={(e) => setReviewerFilter(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white focus:ring-1 focus:ring-brand-500 font-medium text-slate-900"
+            >
+              {availableReviewers.map((rev) => (
+                <option key={rev} value={rev}>
+                  {rev === 'All' ? 'ALL (All Reviewers)' : rev}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div>
@@ -384,7 +357,7 @@ export default function ReviewQueue() {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Search clause text..."
+                placeholder="Search clause, code, doc..."
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 p-2 pl-8 text-xs focus:ring-1 focus:ring-brand-500"
@@ -394,173 +367,367 @@ export default function ReviewQueue() {
           </div>
 
           <div className="flex items-end">
-            <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer w-full text-xs font-semibold text-slate-700">
+            <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50 cursor-pointer w-full text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors">
               <input
                 type="checkbox"
                 checked={lowConfidenceOnly}
                 onChange={(e) => setLowConfidenceOnly(e.target.checked)}
                 className="rounded border-slate-300 text-rose-600 focus:ring-rose-500"
               />
-              <span>⚠️ Low Confidence Only (&lt;0.85)</span>
+              <span>⚠️ Low Confidence (&lt;0.85)</span>
             </label>
           </div>
         </div>
 
         {/* Bulk Action Controls */}
-        {selectedRows.length > 0 && (
+        {selectedCount > 0 && (
           <div className="flex items-center justify-between p-3 bg-brand-50 rounded-lg border border-brand-200">
-            <span className="text-xs font-bold text-brand-900">
-              {selectedRows.length} item(s) selected
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-brand-900">
+                {selectedCount} item(s) selected
+              </span>
+              <button
+                type="button"
+                onClick={() => setRowSelection({})}
+                className="text-xs text-brand-700 hover:underline font-semibold"
+              >
+                Clear Selection
+              </button>
+            </div>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={handleBulkApprove}
                 disabled={bulkMutation.isPending}
-                className="py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow transition-colors flex items-center gap-1.5"
+                className="py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow transition-colors flex items-center gap-1.5 disabled:opacity-50"
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Bulk Approve Selected
+                Bulk Approve Selected ({selectedCount})
               </button>
               <button
                 type="button"
                 onClick={handleBulkReject}
                 disabled={bulkMutation.isPending}
-                className="py-1.5 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow transition-colors flex items-center gap-1.5"
+                className="py-1.5 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow transition-colors flex items-center gap-1.5 disabled:opacity-50"
               >
                 <XCircle className="w-3.5 h-3.5" />
-                Bulk Reject Selected
+                Bulk Reject Selected ({selectedCount})
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {/* TanStack Table View */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        {isLoading ? (
-          <div className="p-12 text-center text-sm text-slate-500">Loading extractions...</div>
-        ) : extractions.length === 0 ? (
-          <div className="p-12 text-center text-sm text-slate-500">
-            No extractions found matching current filters.
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 text-slate-700 uppercase font-semibold border-b border-slate-200">
-                  {table.getHeaderGroups().map((headerGroup) => (
-                    <tr key={headerGroup.id}>
-                      {headerGroup.headers.map((header) => (
-                        <th key={header.id} className="p-3">
-                          {header.isPlaceholder
-                            ? null
-                            : flexRender(header.column.columnDef.header, header.getContext())}
-                        </th>
-                      ))}
-                    </tr>
-                  ))}
-                </thead>
-                <tbody className="divide-y divide-slate-200 text-slate-800">
-                  {table.getRowModel().rows.map((row) => (
-                    <tr key={row.id} className="hover:bg-slate-50/80 transition-colors">
-                      {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id} className="p-3">
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {/* Table Summary & Expand/Collapse Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+        <div className="flex items-center gap-3 text-xs text-slate-600">
+          <span className="font-medium">
+            Found <strong className="text-slate-900">{extractions.length}</strong> requirements across{' '}
+            <strong className="text-slate-900">{documentGroups.length}</strong> document(s)
+          </span>
+          {reviewerFilter !== 'All' && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 text-[11px] font-semibold border border-brand-200">
+              <UserCheck className="w-3 h-3" />
+              Filter: {reviewerFilter}
+            </span>
+          )}
+        </div>
 
-            {/* Pagination Controls */}
-            {extractions.length > 0 && (
-              <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
-                <div className="flex items-center gap-2">
-                  <span>
-                    Showing{' '}
-                    <strong className="text-slate-900">
-                      {table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}
-                    </strong>{' '}
-                    to{' '}
-                    <strong className="text-slate-900">
-                      {Math.min(
-                        (table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize,
-                        extractions.length
-                      )}
-                    </strong>{' '}
-                    of <strong className="text-slate-900">{extractions.length}</strong> requirements
-                  </span>
-                  <span className="text-slate-300">|</span>
-                  <div className="flex items-center gap-1">
-                    <span>Show</span>
-                    <select
-                      value={table.getState().pagination.pageSize}
-                      onChange={(e) => table.setPageSize(Number(e.target.value))}
-                      className="p-1 rounded border border-slate-300 bg-white font-medium text-slate-800 focus:ring-1 focus:ring-brand-500"
+        {documentGroups.length > 0 && (
+          <div className="flex items-center gap-2 text-xs">
+            <button
+              type="button"
+              onClick={expandAll}
+              className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold transition-colors"
+            >
+              Expand All
+            </button>
+            <button
+              type="button"
+              onClick={collapseAll}
+              className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold transition-colors"
+            >
+              Collapse All
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Document-Grouped Requirements View */}
+      {isLoading ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-sm text-slate-500 shadow-sm">
+          Loading requirements queue...
+        </div>
+      ) : documentGroups.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-sm text-slate-500 shadow-sm">
+          No requirements found matching the current filters.
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {documentGroups.map((group) => {
+            const isCollapsed = Boolean(collapsedGroups[group.groupKey]);
+            const allGroupSelected =
+              group.items.length > 0 && group.items.every((item) => rowSelection[item.id]);
+            const someGroupSelected =
+              !allGroupSelected && group.items.some((item) => rowSelection[item.id]);
+
+            const pendingCount = group.items.filter((i) => i.status === 'Pending Review').length;
+            const lowConfCount = group.items.filter((i) => (i.confidence_score ?? 1.0) < 0.85).length;
+            const approvedCount = group.items.filter((i) => i.status === 'Approved').length;
+
+            return (
+              <div
+                key={group.groupKey}
+                className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all"
+              >
+                {/* Document Group Header Banner */}
+                <div className="bg-slate-50/90 border-b border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start sm:items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleGroupCollapse(group.groupKey)}
+                      className="p-1 hover:bg-slate-200/70 rounded-md text-slate-600 transition-colors mt-0.5 sm:mt-0"
+                      title={isCollapsed ? 'Expand Document Requirements' : 'Collapse Document Requirements'}
                     >
-                      <option value={10}>10</option>
-                      <option value={25}>25</option>
-                      <option value={50}>50</option>
-                    </select>
-                    <span>per page</span>
+                      {isCollapsed ? (
+                        <ChevronRight className="w-5 h-5 text-slate-600" />
+                      ) : (
+                        <ChevronDown className="w-5 h-5 text-slate-700" />
+                      )}
+                    </button>
+
+                    <input
+                      type="checkbox"
+                      checked={allGroupSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someGroupSelected;
+                      }}
+                      onChange={() => toggleGroupSelection(group)}
+                      title="Select all in this document"
+                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500 h-4 w-4 mt-1 sm:mt-0"
+                    />
+
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono font-extrabold text-sm px-2.5 py-0.5 rounded bg-brand-50 text-brand-800 border border-brand-200 flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-brand-600" />
+                          {group.documentNumber}
+                        </span>
+
+                        <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200">
+                          Rev {group.documentVersion}
+                        </span>
+
+                        {group.documentType && (
+                          <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-200/70 text-slate-700">
+                            {group.documentType}
+                          </span>
+                        )}
+
+                        {group.documentOwner && (
+                          <span className="text-[11px] font-medium text-slate-600">
+                            Owner: <strong>{group.documentOwner}</strong>
+                          </span>
+                        )}
+
+                        {group.documentDate && (
+                          <span className="text-[11px] text-slate-500">
+                            Date: {group.documentDate}
+                          </span>
+                        )}
+                      </div>
+
+                      <h2 className="text-sm font-semibold text-slate-900">
+                        {group.documentTitle}
+                      </h2>
+                    </div>
+                  </div>
+
+                  {/* Document Metrics & Quick Actions */}
+                  <div className="flex flex-wrap items-center gap-2 self-end sm:self-center">
+                    <div className="flex items-center gap-1.5 text-[11px]">
+                      <span className="px-2 py-0.5 rounded-full font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                        {group.items.length} reqs
+                      </span>
+                      {pendingCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                          {pendingCount} Pending
+                        </span>
+                      )}
+                      {lowConfCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-full font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                          {lowConfCount} Low Conf
+                        </span>
+                      )}
+                      {approvedCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-full font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          {approvedCount} Approved
+                        </span>
+                      )}
+                    </div>
+
+                    {pendingCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleApproveGroupPending(group)}
+                        disabled={bulkMutation.isPending}
+                        className="py-1 px-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 disabled:opacity-50"
+                        title="Approve all pending requirements in this document"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Approve Pending ({pendingCount})
+                      </button>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  <span className="mr-2">
-                    Page{' '}
-                    <strong className="text-slate-900">
-                      {table.getState().pagination.pageIndex + 1}
-                    </strong>{' '}
-                    of <strong className="text-slate-900">{table.getPageCount() || 1}</strong>
-                  </span>
+                {/* Document Group Requirements Table */}
+                {!isCollapsed && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100/80 text-slate-700 uppercase font-semibold border-b border-slate-200">
+                        <tr>
+                          <th className="p-3 w-10 text-center">
+                            <span className="sr-only">Select</span>
+                          </th>
+                          <th className="p-3 w-28">Code</th>
+                          <th className="p-3 w-24">Type</th>
+                          <th className="p-3 w-28">Discipline</th>
+                          <th className="p-3">Requirement Clause</th>
+                          <th className="p-3 w-24">Confidence</th>
+                          <th className="p-3 w-28">Status</th>
+                          <th className="p-3 w-36 text-center">Review Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 text-slate-800">
+                        {group.items.map((item) => {
+                          const isSelected = Boolean(rowSelection[item.id]);
+                          const score = item.confidence_score ?? 1.0;
+                          const isLow = score < 0.85;
 
-                  <button
-                    type="button"
-                    onClick={() => table.setPageIndex(0)}
-                    disabled={!table.getCanPreviousPage()}
-                    className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    title="First Page"
-                  >
-                    <ChevronsLeft className="w-4 h-4 text-slate-700" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => table.previousPage()}
-                    disabled={!table.getCanPreviousPage()}
-                    className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    title="Previous Page"
-                  >
-                    <ChevronLeft className="w-4 h-4 text-slate-700" />
-                  </button>
+                          let statusColor = 'bg-slate-100 text-slate-800 border-slate-200';
+                          if (item.status === 'Approved')
+                            statusColor = 'bg-emerald-100 text-emerald-800 border-emerald-200';
+                          if (item.status === 'Pending Review')
+                            statusColor = 'bg-amber-100 text-amber-800 border-amber-200';
+                          if (item.status === 'Rejected')
+                            statusColor = 'bg-rose-100 text-rose-800 border-rose-200';
+                          if (item.status === 'Edited')
+                            statusColor = 'bg-sky-100 text-sky-800 border-sky-200';
 
-                  <button
-                    type="button"
-                    onClick={() => table.nextPage()}
-                    disabled={!table.getCanNextPage()}
-                    className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    title="Next Page"
-                  >
-                    <ChevronRight className="w-4 h-4 text-slate-700" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => table.setPageIndex(table.getPageCount() - 1)}
-                    disabled={!table.getCanNextPage()}
-                    className="p-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    title="Last Page"
-                  >
-                    <ChevronsRight className="w-4 h-4 text-slate-700" />
-                  </button>
-                </div>
+                          return (
+                            <tr
+                              key={item.id}
+                              className={`transition-colors ${
+                                isSelected ? 'bg-brand-50/50' : 'hover:bg-slate-50/80'
+                              }`}
+                            >
+                              <td className="p-3 text-center">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleSingleRowSelection(item.id)}
+                                  className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                                />
+                              </td>
+                              <td className="p-3">
+                                <span className="font-mono font-bold text-brand-700">
+                                  {item.requirement_code || 'REQ'}
+                                </span>
+                              </td>
+                              <td className="p-3">
+                                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-800">
+                                  {item.item_type || 'Requirement'}
+                                </span>
+                              </td>
+                              <td className="p-3">
+                                <span className="font-medium text-slate-800">
+                                  {item.engineering_discipline}
+                                </span>
+                              </td>
+                              <td className="p-3">
+                                <p className="max-w-md font-normal leading-relaxed text-slate-800 line-clamp-3 hover:line-clamp-none transition-all">
+                                  {item.requirement_text}
+                                </p>
+                                {item.sme_comments && (
+                                  <p className="mt-1 text-[11px] text-slate-500 italic">
+                                    💬 {item.sme_comments}
+                                  </p>
+                                )}
+                              </td>
+                              <td className="p-3">
+                                <div className="space-y-0.5">
+                                  <span
+                                    className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold border ${
+                                      isLow
+                                        ? 'bg-rose-100 text-rose-800 border-rose-200'
+                                        : 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                    }`}
+                                  >
+                                    {(score * 100).toFixed(0)}%
+                                  </span>
+                                  {isLow && (
+                                    <span className="block text-[10px] text-rose-600 font-semibold">
+                                      Low Conf
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-3">
+                                <span
+                                  className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold border ${statusColor}`}
+                                >
+                                  {item.status}
+                                </span>
+                              </td>
+                              <td className="p-3 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleApproveSingle(item)}
+                                    title="Approve Requirement"
+                                    className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 border border-emerald-200 transition-colors"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRejectSingle(item)}
+                                    title="Reject Requirement"
+                                    className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEditClick(item)}
+                                    title="Edit Clause"
+                                    className="p-1.5 rounded-lg text-brand-600 hover:bg-brand-50 border border-brand-200 transition-colors"
+                                  >
+                                    <Edit3 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFlaggingItem(item)}
+                                    title="Flag Document Revision"
+                                    className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 border border-amber-200 transition-colors"
+                                  >
+                                    <Flag className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
-            )}
-          </>
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Edit Drawer / Modal */}
       {editingItem && (
@@ -679,7 +846,7 @@ export default function ReviewQueue() {
                 type="button"
                 disabled={updateMutation.isPending}
                 onClick={handleSaveEdit}
-                className="py-2 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-bold shadow transition-colors"
+                className="py-2 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-xs font-bold shadow transition-colors disabled:opacity-50"
               >
                 Save & Apply Changes
               </button>
@@ -707,7 +874,7 @@ export default function ReviewQueue() {
             </div>
 
             <p className="text-xs text-slate-600">
-              Flags standard <strong>{flaggingItem.document_owner || 'Engineering Lead'}</strong> to review this specification for obsolescence, ambiguity, or regulatory changes.
+              Flags standard <strong>{flaggingItem.document_number || flaggingItem.document_title || 'Engineering Specification'} (Rev {flaggingItem.document_version || '1.0'})</strong> to review for obsolescence, ambiguity, or regulatory changes.
             </p>
 
             <div className="space-y-3">
@@ -754,9 +921,10 @@ export default function ReviewQueue() {
                 disabled={flagMutation.isPending || !flagIssue.trim()}
                 onClick={() =>
                   flagMutation.mutate({
-                    document_title: flaggingItem.section_title || 'Engineering Specification',
+                    document_id: flaggingItem.document_id || null,
+                    document_title: flaggingItem.document_title || flaggingItem.section_title || 'Engineering Specification',
                     document_owner: flaggingItem.document_owner || 'Engineering Lead',
-                    flagged_by: reviewerName,
+                    flagged_by: activeSigner,
                     issue_description: flagIssue,
                     suggested_action: flagAction,
                   })

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ExtractionItemSchema,
   ExtractionBatchSchema,
+  ExtractionRecordSchema,
   DocumentRecordSchema,
   ProjectScopeInputSchema,
   RFPPackageSchema,
@@ -103,5 +104,26 @@ describe('Zod Schema Validation', () => {
     const parsed = DocumentRevisionFlagSchema.parse(flag);
     expect(parsed.is_resolved).toBe(false);
     expect(parsed.suggested_action).toBe('Review and Update Standard');
+  });
+
+  it('validates ExtractionRecordSchema with document metadata for grouping', () => {
+    const record = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      batch_id: 'batch-001',
+      requirement_code: 'REQ-MEC-001',
+      requirement_text: 'All pressure vessels shall comply with ASME Section VIII.',
+      engineering_discipline: 'Mechanical',
+      compliance_level: 'Mandatory',
+      status: 'Pending Review',
+      document_number: 'SPEC-ENG-2026-001',
+      document_version: '2.1',
+      document_title: 'Pressure Vessels & Piping Standard',
+      document_date: '2026-08-31',
+      document_type: 'Standard',
+    };
+    const parsed = ExtractionRecordSchema.parse(record);
+    expect(parsed.document_number).toBe('SPEC-ENG-2026-001');
+    expect(parsed.document_version).toBe('2.1');
+    expect(parsed.document_title).toBe('Pressure Vessels & Piping Standard');
   });
 });

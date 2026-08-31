@@ -1,31 +1,38 @@
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { extractions, feedbackLessons } from '../db/schema.js';
-import { eq, and, lt, desc, sql } from 'drizzle-orm';
+import { extractions, documents, feedbackLessons } from '../db/schema.js';
+import { eq, and, lt, desc, sql, or } from 'drizzle-orm';
 
 export const extractionsRouter = new Hono();
 
-function formatExtractionRow(r: any) {
+function formatExtractionRow(r: { extraction: any; document?: any } | any) {
+  const ex = r.extraction || r;
+  const doc = r.document;
   return {
-    id: r.id,
-    document_id: r.documentId,
-    batch_id: r.batchId,
-    section_title: r.sectionTitle,
-    requirement_code: r.requirementCode,
-    requirement_text: r.requirementText,
-    item_type: r.itemType,
-    category: r.category,
-    engineering_discipline: r.engineeringDiscipline,
-    compliance_level: r.complianceLevel,
-    estimated_cost_impact: r.estimatedCostImpact,
-    document_owner: r.documentOwner,
-    confidence_score: r.confidenceScore,
-    confidence_reasoning: r.confidenceReasoning,
-    status: r.status,
-    sme_reviewer: r.smeReviewer,
-    sme_comments: r.smeComments,
-    created_at: r.createdAt ? new Date(r.createdAt).toISOString() : null,
-    reviewed_at: r.reviewedAt ? new Date(r.reviewedAt).toISOString() : null,
+    id: ex.id,
+    document_id: ex.documentId,
+    batch_id: ex.batchId,
+    section_title: ex.sectionTitle,
+    requirement_code: ex.requirementCode,
+    requirement_text: ex.requirementText,
+    item_type: ex.itemType,
+    category: ex.category,
+    engineering_discipline: ex.engineeringDiscipline,
+    compliance_level: ex.complianceLevel,
+    estimated_cost_impact: ex.estimatedCostImpact,
+    document_owner: ex.documentOwner || doc?.ownerSme || null,
+    confidence_score: ex.confidenceScore,
+    confidence_reasoning: ex.confidenceReasoning,
+    status: ex.status,
+    sme_reviewer: ex.smeReviewer,
+    sme_comments: ex.smeComments,
+    created_at: ex.createdAt ? new Date(ex.createdAt).toISOString() : null,
+    reviewed_at: ex.reviewedAt ? new Date(ex.reviewedAt).toISOString() : null,
+    document_number: doc?.documentNumber || null,
+    document_version: doc?.version || '1.0',
+    document_title: doc?.filename || null,
+    document_date: doc?.documentDate || null,
+    document_type: doc?.documentType || 'Standard',
   };
 }
 
@@ -34,11 +41,19 @@ extractionsRouter.get('/', async (c) => {
   try {
     const status = c.req.query('status');
     const discipline = c.req.query('discipline');
-    const owner = c.req.query('owner');
+    const reviewer = c.req.query('reviewer') || c.req.query('owner');
     const lowConfidenceOnly = c.req.query('lowConfidenceOnly') === 'true';
     const keyword = c.req.query('keyword')?.toLowerCase();
 
-    let query = db.select().from(extractions).$dynamic();
+    let query = db
+      .select({
+        extraction: extractions,
+        document: documents,
+      })
+      .from(extractions)
+      .leftJoin(documents, eq(extractions.documentId, documents.id))
+      .$dynamic();
+
     const conditions = [];
 
     if (status && status !== 'All') {
@@ -47,8 +62,14 @@ extractionsRouter.get('/', async (c) => {
     if (discipline && discipline !== 'All') {
       conditions.push(eq(extractions.engineeringDiscipline, discipline));
     }
-    if (owner && owner !== 'All') {
-      conditions.push(eq(extractions.documentOwner, owner));
+    if (reviewer && reviewer !== 'All') {
+      conditions.push(
+        or(
+          eq(extractions.smeReviewer, reviewer),
+          eq(extractions.documentOwner, reviewer),
+          eq(documents.ownerSme, reviewer)
+        )
+      );
     }
     if (lowConfidenceOnly) {
       conditions.push(lt(extractions.confidenceScore, 0.85));
@@ -64,9 +85,11 @@ extractionsRouter.get('/', async (c) => {
     if (keyword && keyword.trim()) {
       filtered = rows.filter(
         (r) =>
-          r.requirementText.toLowerCase().includes(keyword) ||
-          r.requirementCode?.toLowerCase().includes(keyword) ||
-          r.category?.toLowerCase().includes(keyword)
+          r.extraction.requirementText.toLowerCase().includes(keyword) ||
+          r.extraction.requirementCode?.toLowerCase().includes(keyword) ||
+          r.extraction.category?.toLowerCase().includes(keyword) ||
+          r.document?.documentNumber?.toLowerCase().includes(keyword) ||
+          r.document?.filename?.toLowerCase().includes(keyword)
       );
     }
 
