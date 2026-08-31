@@ -516,6 +516,7 @@ export async function extractRequirementsFromText(
     timestamp: new Date().toISOString(),
     details: {
       totalSections: sections.length,
+      currentSectionIndex: 0,
       rawItemsCount: 0,
       model: 'Gemini 3.7 Flash (Thinking)',
     },
@@ -559,6 +560,7 @@ export async function extractRequirementsFromText(
     timestamp: new Date().toISOString(),
     details: {
       totalSections: sections.length,
+      currentSectionIndex: sections.length,
       rawItemsCount: rawItems.length,
       model: 'Gemini 3.7 Flash (Thinking)',
     },

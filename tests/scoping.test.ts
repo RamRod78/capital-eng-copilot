@@ -5,6 +5,8 @@ import {
   ProjectScopeRecordSchema,
   ProjectCreateInputSchema,
   FeedbackEntryCreateSchema,
+  sortRequirementItems,
+  groupRequirementsByDiscipline,
 } from '../src/shared/schemas.js';
 
 describe('Project Scoping & RFP Models', () => {
@@ -27,6 +29,7 @@ describe('Project Scoping & RFP Models', () => {
     const record = {
       id: '123e4567-e89b-12d3-a456-426614174000',
       ...input,
+      saved_items_count: 12,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -34,6 +37,7 @@ describe('Project Scoping & RFP Models', () => {
     const parsedRecord = ProjectScopeRecordSchema.parse(record);
     expect(parsedRecord.id).toBe('123e4567-e89b-12d3-a456-426614174000');
     expect(parsedRecord.status).toBe('Configured');
+    expect(parsedRecord.saved_items_count).toBe(12);
   });
 
   it('validates complete RFP package model for Step 2 (Generate RFPs)', () => {
@@ -105,5 +109,86 @@ describe('Project Scoping & RFP Models', () => {
     const parsedAddition = FeedbackEntryCreateSchema.parse(additionFeedback);
     expect(parsedAddition.final_status).toBe('Approved');
     expect(parsedAddition.reviewer).toBe('Materials & Metallurgy SME');
+  });
+
+  it('groups requirements by discipline within a category and sorts by requirement number', () => {
+    const rawItems = [
+      {
+        scoping_item_id: '1',
+        requirement_code: 'REQ-MEC-010',
+        requirement_text: 'Mechanical requirement 10',
+        engineering_discipline: 'Mechanical',
+        compliance_level: 'Mandatory',
+      },
+      {
+        scoping_item_id: '2',
+        requirement_code: 'REQ-ELE-002',
+        requirement_text: 'Electrical requirement 2',
+        engineering_discipline: 'Electrical',
+        compliance_level: 'Mandatory',
+      },
+      {
+        scoping_item_id: '3',
+        requirement_code: 'REQ-MEC-002',
+        requirement_text: 'Mechanical requirement 2',
+        engineering_discipline: 'Mechanical',
+        compliance_level: 'Mandatory',
+      },
+      {
+        scoping_item_id: '4',
+        requirement_code: 'REQ-PIP-001',
+        requirement_text: 'Piping requirement 1',
+        engineering_discipline: 'Piping',
+        compliance_level: 'Mandatory',
+      },
+      {
+        scoping_item_id: '5',
+        requirement_code: 'REQ-MEC-001',
+        requirement_text: 'Mechanical requirement 1',
+        engineering_discipline: 'Mechanical',
+        compliance_level: 'Mandatory',
+      },
+      {
+        scoping_item_id: '6',
+        requirement_code: 'REQ-ELE-001',
+        requirement_text: 'Electrical requirement 1',
+        engineering_discipline: 'Electrical',
+        compliance_level: 'Mandatory',
+      },
+    ];
+
+    const sorted = sortRequirementItems(rawItems);
+    expect(sorted.map((i) => i.requirement_code)).toEqual([
+      'REQ-MEC-001',
+      'REQ-MEC-002',
+      'REQ-MEC-010',
+      'REQ-PIP-001',
+      'REQ-ELE-001',
+      'REQ-ELE-002',
+    ]);
+
+    const groups = groupRequirementsByDiscipline(rawItems);
+    expect(groups).toHaveLength(3);
+
+    // 1. Mechanical group (ordered first per standard discipline order)
+    expect(groups[0].discipline).toBe('Mechanical');
+    expect(groups[0].items.map((i) => i.requirement_code)).toEqual([
+      'REQ-MEC-001',
+      'REQ-MEC-002',
+      'REQ-MEC-010',
+    ]);
+
+    // 2. Piping group
+    expect(groups[1].discipline).toBe('Piping');
+    expect(groups[1].items.map((i) => i.requirement_code)).toEqual([
+      'REQ-PIP-001',
+    ]);
+
+    // 3. Electrical group
+    expect(groups[2].discipline).toBe('Electrical');
+    expect(groups[2].items.map((i) => i.requirement_code)).toEqual([
+      'REQ-ELE-001',
+      'REQ-ELE-002',
+    ]);
   });
 });

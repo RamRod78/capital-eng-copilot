@@ -277,6 +277,15 @@ export async function matchScopeRequirements(input: ProjectScopeInput & { top_k?
   return res.json();
 }
 
+export async function fetchProjectPackage(id: string): Promise<RFPPackage> {
+  const res = await fetch(`${API_BASE}/scoping/projects/${id}/package`);
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to fetch scope package');
+  }
+  return res.json();
+}
+
 export async function saveRFPPackage(pkg: RFPPackage) {
   const res = await fetch(`${API_BASE}/scoping/save`, {
     method: 'POST',

@@ -185,6 +185,56 @@ export default function IngestExtract() {
     },
   });
 
+  // Compute aggregated details for each stage
+  const getStageAggregates = () => {
+    const stage1Events = progressEvents.filter((e) => e.stage === 1);
+    const stage2Events = progressEvents.filter((e) => e.stage === 2);
+    const stage3Events = progressEvents.filter((e) => e.stage === 3);
+
+    const stage1Completed = stage1Events.some((e) => e.status === 'completed') || currentStage === 2 || currentStage === 3 || currentStage === 'complete';
+    const stage2Completed = stage2Events.some((e) => e.status === 'completed') || currentStage === 3 || currentStage === 'complete';
+    const stage3Completed = stage3Events.some((e) => e.status === 'completed') || currentStage === 'complete';
+
+    const stage1Details = stage1Events.reduce(
+      (acc, e) => ({ ...acc, ...e.details }),
+      {} as NonNullable<ExtractionProgressEvent['details']>
+    );
+
+    const stage2Details = stage2Events.reduce(
+      (acc, e) => {
+        const next = { ...acc, ...e.details };
+        if (e.details?.currentSectionIndex !== undefined) {
+          next.currentSectionIndex = Math.max(next.currentSectionIndex ?? 0, e.details.currentSectionIndex);
+        }
+        if (e.details?.rawItemsCount !== undefined) {
+          next.rawItemsCount = Math.max(next.rawItemsCount ?? 0, e.details.rawItemsCount);
+        }
+        return next;
+      },
+      {} as NonNullable<ExtractionProgressEvent['details']>
+    );
+    if (stage2Completed && stage2Details.totalSections) {
+      stage2Details.currentSectionIndex = stage2Details.totalSections;
+    }
+
+    const stage3Details = stage3Events.reduce(
+      (acc, e) => ({ ...acc, ...e.details }),
+      {} as NonNullable<ExtractionProgressEvent['details']>
+    );
+
+    return {
+      stage1Events,
+      stage2Events,
+      stage3Events,
+      stage1Completed,
+      stage2Completed,
+      stage3Completed,
+      stage1Details,
+      stage2Details,
+      stage3Details,
+    };
+  };
+
   // Calculate overall progress percentage
   const calculateOverallProgress = (): number => {
     if (currentStage === 0) return 0;
@@ -197,9 +247,9 @@ export default function IngestExtract() {
     }
 
     if (currentStage === 2) {
-      const latestStage2Event = [...progressEvents].reverse().find((e) => e.stage === 2);
-      const total = latestStage2Event?.details?.totalSections || 1;
-      const current = latestStage2Event?.details?.currentSectionIndex || 0;
+      const { stage2Details } = getStageAggregates();
+      const total = stage2Details.totalSections || 1;
+      const current = stage2Details.currentSectionIndex || 0;
       const sectionPct = Math.min(Math.round((current / total) * 33), 33);
       return 33 + (sectionPct || 10);
     }
@@ -214,13 +264,17 @@ export default function IngestExtract() {
 
   // Compute stage cards information
   const getStageCards = (): StageCardState[] => {
-    const stage1Events = progressEvents.filter((e) => e.stage === 1);
-    const stage2Events = progressEvents.filter((e) => e.stage === 2);
-    const stage3Events = progressEvents.filter((e) => e.stage === 3);
-
-    const stage1Completed = stage1Events.some((e) => e.status === 'completed') || currentStage === 2 || currentStage === 3 || currentStage === 'complete';
-    const stage2Completed = stage2Events.some((e) => e.status === 'completed') || currentStage === 3 || currentStage === 'complete';
-    const stage3Completed = stage3Events.some((e) => e.status === 'completed') || currentStage === 'complete';
+    const {
+      stage1Events,
+      stage2Events,
+      stage3Events,
+      stage1Completed,
+      stage2Completed,
+      stage3Completed,
+      stage1Details,
+      stage2Details,
+      stage3Details,
+    } = getStageAggregates();
 
     const latestStage1 = stage1Events[stage1Events.length - 1];
     const latestStage2 = stage2Events[stage2Events.length - 1];
@@ -233,8 +287,8 @@ export default function IngestExtract() {
         model: 'Gemini 3.6 Flash',
         description: 'Scans layout, identifies engineering clauses & partitions logical sections.',
         status: stage1Completed ? 'completed' : currentStage === 1 ? 'running' : 'pending',
-        statusMessage: latestStage1?.message || 'Awaiting document ingestion...',
-        details: latestStage1?.details,
+        statusMessage: latestStage1?.message || (stage1Completed ? 'ToC chunking complete.' : 'Awaiting document ingestion...'),
+        details: Object.keys(stage1Details).length > 0 ? stage1Details : latestStage1?.details,
       },
       {
         stageId: 2,
@@ -242,8 +296,8 @@ export default function IngestExtract() {
         model: 'Gemini 3.7 Flash (Thinking)',
         description: 'Runs concurrent deep extraction with structured outputs and thinking process.',
         status: stage2Completed ? 'completed' : currentStage === 2 ? 'running' : 'pending',
-        statusMessage: latestStage2?.message || 'Pending Stage 1 completion...',
-        details: latestStage2?.details,
+        statusMessage: latestStage2?.message || (stage2Completed ? 'Deep extraction complete.' : 'Pending Stage 1 completion...'),
+        details: Object.keys(stage2Details).length > 0 ? stage2Details : latestStage2?.details,
       },
       {
         stageId: 3,
@@ -251,8 +305,8 @@ export default function IngestExtract() {
         model: 'Gemini 2.5 Pro',
         description: 'De-duplicates clauses, analyzes cross-discipline conflicts & assigns sequence IDs.',
         status: stage3Completed ? 'completed' : currentStage === 3 ? 'running' : 'pending',
-        statusMessage: latestStage3?.message || 'Pending Stage 2 candidate items...',
-        details: latestStage3?.details,
+        statusMessage: latestStage3?.message || (stage3Completed ? 'Synthesis complete.' : 'Pending Stage 2 candidate items...'),
+        details: Object.keys(stage3Details).length > 0 ? stage3Details : latestStage3?.details,
       },
     ];
   };
@@ -683,20 +737,23 @@ export default function IngestExtract() {
                       </div>
                     ) : stage.stageId === 2 && stage.details ? (
                       <div className="space-y-1.5">
-                        {stage.details.totalSections && (
+                        {stage.details.totalSections !== undefined && stage.details.totalSections > 0 && (
                           <div className="space-y-1">
                             <div className="flex justify-between text-[11px] text-slate-300 font-medium">
                               <span>Sections Processed:</span>
                               <span className="font-mono text-brand-300">
-                                {stage.details.currentSectionIndex || 0} / {stage.details.totalSections}
+                                {stage.details.currentSectionIndex ?? 0} / {stage.details.totalSections}
                               </span>
                             </div>
                             <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
                               <div
                                 className="bg-brand-400 h-full transition-all duration-300"
                                 style={{
-                                  width: `${Math.round(
-                                    ((stage.details.currentSectionIndex || 0) / stage.details.totalSections) * 100
+                                  width: `${Math.min(
+                                    100,
+                                    Math.round(
+                                      ((stage.details.currentSectionIndex ?? 0) / stage.details.totalSections) * 100
+                                    )
                                   )}%`,
                                 }}
                               />

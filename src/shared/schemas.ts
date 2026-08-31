@@ -342,6 +342,7 @@ export const ProjectScopeRecordSchema = z.object({
   disciplines: z.array(z.string()).default([]),
   status: z.string().default('Draft'),
   created_by: z.string().default('Engineering Lead'),
+  saved_items_count: z.number().default(0).optional(),
   created_at: z.string().optional(),
   updated_at: z.string().optional(),
 });
@@ -461,4 +462,65 @@ export const ExtractionProgressEventSchema = z.object({
   }).optional(),
 });
 export type ExtractionProgressEvent = z.infer<typeof ExtractionProgressEventSchema>;
+
+// Scoping Requirement Grouping & Sorting Utilities
+export interface DisciplineGroup<T> {
+  discipline: string;
+  items: T[];
+}
+
+export const ORDERED_DISCIPLINES = [
+  'Mechanical',
+  'Piping',
+  'Electrical',
+  'I&C',
+  'Process',
+  'Civil/Structural',
+  'HSE',
+  'Telecom',
+  'Quality',
+  'General',
+] as const;
+
+export function sortRequirementItems<T extends { requirement_code?: string | null; engineering_discipline?: string | null }>(
+  items: T[]
+): T[] {
+  return [...items].sort((a, b) => {
+    const discA = a.engineering_discipline || 'General';
+    const discB = b.engineering_discipline || 'General';
+    const idxA = ORDERED_DISCIPLINES.indexOf(discA as any);
+    const idxB = ORDERED_DISCIPLINES.indexOf(discB as any);
+    const orderA = idxA !== -1 ? idxA : 999;
+    const orderB = idxB !== -1 ? idxB : 999;
+
+    const discCmp = orderA - orderB || discA.localeCompare(discB);
+    if (discCmp !== 0) return discCmp;
+
+    const codeA = a.requirement_code || '';
+    const codeB = b.requirement_code || '';
+    return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+  });
+}
+
+export function groupRequirementsByDiscipline<T extends { requirement_code?: string | null; engineering_discipline?: string | null }>(
+  items: T[]
+): DisciplineGroup<T>[] {
+  const sorted = sortRequirementItems(items);
+  const map = new Map<string, T[]>();
+
+  for (const item of sorted) {
+    const disc = item.engineering_discipline || 'General';
+    if (!map.has(disc)) {
+      map.set(disc, []);
+    }
+    map.get(disc)!.push(item);
+  }
+
+  const groups: DisciplineGroup<T>[] = [];
+  for (const [discipline, groupItems] of map.entries()) {
+    groups.push({ discipline, items: groupItems });
+  }
+
+  return groups;
+}
 

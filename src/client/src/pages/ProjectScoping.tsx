@@ -23,6 +23,7 @@ import {
   Gauge,
   Check,
   Lightbulb,
+  Layers,
 } from 'lucide-react';
 import {
   fetchProjects,
@@ -30,6 +31,7 @@ import {
   updateProject,
   deleteProject,
   matchScopeRequirements,
+  fetchProjectPackage,
   saveRFPPackage,
   createFeedbackLesson,
   searchSimilarRequirements,
@@ -40,6 +42,8 @@ import {
   RFPPackage,
   ScopingRequirementItem,
   SearchResult,
+  groupRequirementsByDiscipline,
+  sortRequirementItems,
 } from '@shared/schemas';
 
 const ALL_DISCIPLINES = [
@@ -108,6 +112,10 @@ export default function ProjectScoping() {
   const [scopeDescription, setScopeDescription] = useState('');
   const [selectedDisciplines, setSelectedDisciplines] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Step 1: Project Filter Tab ('all' | 'saved' | 'draft')
+  const [projectFilterTab, setProjectFilterTab] = useState<'all' | 'saved' | 'draft'>('all');
+  const [loadingPackageProjectId, setLoadingPackageProjectId] = useState<string | null>(null);
 
   // Step 2: Generation State
   const [topK, setTopK] = useState(15);
@@ -247,6 +255,29 @@ export default function ProjectScoping() {
     setCurrentStep(2);
   };
 
+  // Step 3: Open an existing Saved Scope Package directly for review/editing/re-exporting
+  const handleOpenSavedPackage = async (project: ProjectScopeRecord) => {
+    setLoadingPackageProjectId(project.id);
+    try {
+      const pkg = await fetchProjectPackage(project.id);
+      setSelectedProjectId(project.id);
+      setFilterDisciplines(project.disciplines || ALL_DISCIPLINES);
+      setRfpPackage(pkg);
+      const initialMap: Record<string, boolean> = {};
+      [...pkg.mandatory_requirements, ...pkg.recommendations, ...pkg.guidelines].forEach((item) => {
+        initialMap[item.scoping_item_id] = item.is_selected ?? true;
+      });
+      setSelectedItems(initialMap);
+      setCurrentStep(3);
+      const totalCount = pkg.mandatory_requirements.length + pkg.recommendations.length + pkg.guidelines.length;
+      showNotification(`Loaded saved scope package for "${project.project_name}" (${totalCount} clauses).`);
+    } catch (err: any) {
+      showNotification(`Failed to load scope package: ${err.message}`, 'error');
+    } finally {
+      setLoadingPackageProjectId(null);
+    }
+  };
+
   // Match Scope Requirements Mutation (Step 2)
   const matchMutation = useMutation({
     mutationFn: async () => {
@@ -279,11 +310,30 @@ export default function ProjectScoping() {
     },
   });
 
-  // Save RFP Package Mutation (Step 3)
+  // Save RFP Package Mutation (Step 3) - updates project's scope items without creating a duplicate project
   const saveRFPMutation = useMutation({
-    mutationFn: (pkg: RFPPackage) => saveRFPPackage(pkg),
+    mutationFn: async (pkg: RFPPackage) => {
+      const payload: RFPPackage = {
+        ...pkg,
+        package_id: activeProject?.id || pkg.package_id,
+        mandatory_requirements: pkg.mandatory_requirements.map((item) => ({
+          ...item,
+          is_selected: selectedItems[item.scoping_item_id] ?? true,
+        })),
+        recommendations: pkg.recommendations.map((item) => ({
+          ...item,
+          is_selected: selectedItems[item.scoping_item_id] ?? true,
+        })),
+        guidelines: pkg.guidelines.map((item) => ({
+          ...item,
+          is_selected: selectedItems[item.scoping_item_id] ?? true,
+        })),
+      };
+      return saveRFPPackage(payload);
+    },
     onSuccess: () => {
-      showNotification('RFP Package successfully saved to database.');
+      const pName = activeProject?.project_name || rfpPackage?.project_name || 'Project';
+      showNotification(`Scope package for "${pName}" saved successfully.`);
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['stats'] });
     },
@@ -426,33 +476,45 @@ export default function ProjectScoping() {
     md += `**Author:** Capital Engineering Copilot Agent (Validated by Engineering SME)\n\n`;
     md += `## 1. Project Scope & Technical Objectives\n${rfpPackage.scope_summary}\n\n`;
 
-    md += `## 2. Mandatory Engineering Requirements (${activeMandatory.length} Clauses)\n`;
+    md += `## 2. Mandatory Engineering Requirements (${activeMandatory.length} Clauses)\n\n`;
     if (activeMandatory.length === 0) {
       md += `*No mandatory requirements included.*\n\n`;
     } else {
-      activeMandatory.forEach((item, idx) => {
-        md += `### 2.${idx + 1} [${item.requirement_code || 'REQ'}] ${item.engineering_discipline}\n`;
-        md += `> ${item.requirement_text}\n\n`;
+      const grouped = groupRequirementsByDiscipline(activeMandatory);
+      grouped.forEach((grp, grpIdx) => {
+        md += `### 2.${grpIdx + 1} ${grp.discipline} (${grp.items.length} Clauses)\n\n`;
+        grp.items.forEach((item, idx) => {
+          md += `#### 2.${grpIdx + 1}.${idx + 1} [${item.requirement_code || 'REQ'}]\n`;
+          md += `> ${item.requirement_text}\n\n`;
+        });
       });
     }
 
-    md += `## 3. Recommended Best Practices (${activeRecs.length} Clauses)\n`;
+    md += `## 3. Recommended Best Practices (${activeRecs.length} Clauses)\n\n`;
     if (activeRecs.length === 0) {
       md += `*No recommendations included.*\n\n`;
     } else {
-      activeRecs.forEach((item, idx) => {
-        md += `### 3.${idx + 1} [${item.requirement_code || 'REC'}] ${item.engineering_discipline}\n`;
-        md += `> ${item.requirement_text}\n\n`;
+      const grouped = groupRequirementsByDiscipline(activeRecs);
+      grouped.forEach((grp, grpIdx) => {
+        md += `### 3.${grpIdx + 1} ${grp.discipline} (${grp.items.length} Clauses)\n\n`;
+        grp.items.forEach((item, idx) => {
+          md += `#### 3.${grpIdx + 1}.${idx + 1} [${item.requirement_code || 'REC'}]\n`;
+          md += `> ${item.requirement_text}\n\n`;
+        });
       });
     }
 
-    md += `## 4. Design Guidelines & Options (${activeGuides.length} Clauses)\n`;
+    md += `## 4. Design Guidelines & Options (${activeGuides.length} Clauses)\n\n`;
     if (activeGuides.length === 0) {
       md += `*No guidelines included.*\n\n`;
     } else {
-      activeGuides.forEach((item, idx) => {
-        md += `### 4.${idx + 1} [${item.requirement_code || 'GDL'}] ${item.engineering_discipline}\n`;
-        md += `> ${item.requirement_text}\n\n`;
+      const grouped = groupRequirementsByDiscipline(activeGuides);
+      grouped.forEach((grp, grpIdx) => {
+        md += `### 4.${grpIdx + 1} ${grp.discipline} (${grp.items.length} Clauses)\n\n`;
+        grp.items.forEach((item, idx) => {
+          md += `#### 4.${grpIdx + 1}.${idx + 1} [${item.requirement_code || 'GDL'}]\n`;
+          md += `> ${item.requirement_text}\n\n`;
+        });
       });
     }
 
@@ -469,11 +531,19 @@ export default function ProjectScoping() {
   // Export CSV
   const handleExportCSV = () => {
     if (!rfpPackage) return;
-    const all = [
-      ...rfpPackage.mandatory_requirements.map((i) => ({ ...i, tier: 'Mandatory' })),
-      ...rfpPackage.recommendations.map((i) => ({ ...i, tier: 'Recommendation' })),
-      ...rfpPackage.guidelines.map((i) => ({ ...i, tier: 'Guideline' })),
-    ].filter((i) => selectedItems[i.scoping_item_id]);
+    const activeMandatory = groupRequirementsByDiscipline(
+      rfpPackage.mandatory_requirements.filter((i) => selectedItems[i.scoping_item_id])
+    ).flatMap((g) => g.items.map((i) => ({ ...i, tier: 'Mandatory' })));
+
+    const activeRecs = groupRequirementsByDiscipline(
+      rfpPackage.recommendations.filter((i) => selectedItems[i.scoping_item_id])
+    ).flatMap((g) => g.items.map((i) => ({ ...i, tier: 'Recommendation' })));
+
+    const activeGuides = groupRequirementsByDiscipline(
+      rfpPackage.guidelines.filter((i) => selectedItems[i.scoping_item_id])
+    ).flatMap((g) => g.items.map((i) => ({ ...i, tier: 'Guideline' })));
+
+    const all = [...activeMandatory, ...activeRecs, ...activeGuides];
 
     let csv = `Item Code,Tier,Discipline,Compliance,Requirement Statement,Relevance Score,Status\n`;
     all.forEach((item) => {
@@ -660,167 +730,275 @@ export default function ProjectScoping() {
       </div>
 
       {/* ========================================================================= */}
-      {/* STEP 1: CONFIGURE PROJECTS                                               */}
+      {/* STEP 1: CONFIGURE PROJECTS & SCOPE PACKAGES                              */}
       {/* ========================================================================= */}
-      {currentStep === 1 && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                <FolderKanban className="w-5 h-5 text-brand-600" />
-                Step 1: Configure Capital Projects
-              </h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Maintain and customize projects, engineering disciplines, operating envelopes, and scope statements.
-              </p>
-            </div>
+      {currentStep === 1 && (() => {
+        const savedProjects = projects.filter(
+          (p) => (p.saved_items_count && p.saved_items_count > 0) || p.status === 'Approved'
+        );
+        const draftProjects = projects.filter(
+          (p) => !(p.saved_items_count && p.saved_items_count > 0) && p.status !== 'Approved'
+        );
 
-            <div className="flex items-center gap-3">
-              {projects.length === 0 && (
-                <button
-                  type="button"
-                  onClick={handleSeedSamples}
-                  className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
-                >
-                  <Lightbulb className="w-4 h-4 text-amber-500" />
-                  Load Sample Projects
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={handleOpenAddModal}
-                className="py-2.5 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold text-xs shadow-md transition-colors flex items-center gap-2 cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                Add New Project
-              </button>
-            </div>
-          </div>
+        const filteredProjects =
+          projectFilterTab === 'saved'
+            ? savedProjects
+            : projectFilterTab === 'draft'
+            ? draftProjects
+            : projects;
 
-          {/* Project Cards Grid */}
-          {projectsLoading ? (
-            <div className="p-12 text-center text-sm text-slate-500 bg-white rounded-2xl border border-slate-200">
-              <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-brand-600" />
-              Loading configured projects...
-            </div>
-          ) : projects.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
-              <FolderKanban className="w-12 h-12 text-slate-400 mx-auto" />
+        return (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
               <div>
-                <h3 className="text-base font-bold text-slate-900">No Projects Configured</h3>
+                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <FolderKanban className="w-5 h-5 text-brand-600" />
+                  Step 1: Projects & Scope Packages
+                </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Create your first capital project or click "Load Sample Projects" to get started instantly.
+                  Maintain capital projects and select saved scope packages to edit, re-save, or re-export.
                 </p>
               </div>
-              <div className="flex justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleSeedSamples}
-                  className="py-2 px-4 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-900 shadow cursor-pointer"
-                >
-                  Load Sample Projects
-                </button>
+
+              <div className="flex items-center gap-3">
+                {projects.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={handleSeedSamples}
+                    className="py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs shadow-sm transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <Lightbulb className="w-4 h-4 text-amber-500" />
+                    Load Sample Projects
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleOpenAddModal}
-                  className="py-2 px-4 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 shadow cursor-pointer"
+                  className="py-2.5 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-xl font-bold text-xs shadow-md transition-colors flex items-center gap-2 cursor-pointer"
                 >
-                  + Add Project
+                  <Plus className="w-4 h-4" />
+                  Add New Project
                 </button>
               </div>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {projects.map((project) => {
-                const isSelected = selectedProjectId === project.id;
-                return (
-                  <div
-                    key={project.id}
-                    className={`bg-white rounded-2xl border p-6 flex flex-col justify-between space-y-4 shadow-sm transition-all relative ${
-                      isSelected
-                        ? 'border-brand-500 ring-2 ring-brand-500/20'
-                        : 'border-slate-200 hover:border-slate-300'
-                    }`}
+
+            {/* Filter Tabs Bar */}
+            {projects.length > 0 && (
+              <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+                <button
+                  type="button"
+                  onClick={() => setProjectFilterTab('all')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    projectFilterTab === 'all'
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  All Projects ({projects.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProjectFilterTab('saved')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    projectFilterTab === 'saved'
+                      ? 'bg-emerald-700 text-white shadow-sm'
+                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/60'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Saved Scope Packages ({savedProjects.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProjectFilterTab('draft')}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    projectFilterTab === 'draft'
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Unscoped Projects ({draftProjects.length})
+                </button>
+              </div>
+            )}
+
+            {/* Project Cards Grid */}
+            {projectsLoading ? (
+              <div className="p-12 text-center text-sm text-slate-500 bg-white rounded-2xl border border-slate-200">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-brand-600" />
+                Loading configured projects...
+              </div>
+            ) : filteredProjects.length === 0 ? (
+              <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                <FolderKanban className="w-12 h-12 text-slate-400 mx-auto" />
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {projectFilterTab === 'saved'
+                      ? 'No Saved Scope Packages Yet'
+                      : 'No Projects Found'}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {projectFilterTab === 'saved'
+                      ? 'Select a project to generate and save your first scope package.'
+                      : 'Create your first capital project or click "Load Sample Projects" to get started instantly.'}
+                  </p>
+                </div>
+                {projectFilterTab !== 'all' ? (
+                  <button
+                    type="button"
+                    onClick={() => setProjectFilterTab('all')}
+                    className="py-2 px-4 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 shadow cursor-pointer"
                   >
-                    <div className="space-y-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-brand-50 text-brand-700 border border-brand-200">
-                            {project.project_code || 'CAP-PROJ'}
-                          </span>
-                          <h3 className="font-bold text-base text-slate-900 mt-1 leading-snug">
-                            {project.project_name}
-                          </h3>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditModal(project)}
-                            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                            title="Edit Project"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeleteConfirmProject(project)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
-                            title="Delete Project"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="text-xs text-slate-600 space-y-1.5">
-                        <div className="flex items-center gap-1.5 font-medium text-slate-700">
-                          <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                          <span className="truncate">{project.facility_type}</span>
-                        </div>
-                        {project.operating_conditions && (
-                          <div className="flex items-start gap-1.5 text-slate-500">
-                            <Gauge className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
-                            <span className="line-clamp-2">{project.operating_conditions}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200 line-clamp-3 leading-relaxed font-mono">
-                        {project.scope_description}
-                      </p>
-
-                      <div className="flex flex-wrap gap-1 pt-1">
-                        {project.disciplines.map((disc) => (
-                          <span
-                            key={disc}
-                            className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-semibold"
-                          >
-                            {disc}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                      <span className="text-[11px] text-slate-400">
-                        {project.created_at ? new Date(project.created_at).toLocaleDateString() : 'Active'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectProjectAndProceed(project)}
-                        className="py-2 px-3.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <span>Select & Generate RFP</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    View All Projects
+                  </button>
+                ) : (
+                  <div className="flex justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleSeedSamples}
+                      className="py-2 px-4 bg-slate-800 text-white rounded-xl text-xs font-bold hover:bg-slate-900 shadow cursor-pointer"
+                    >
+                      Load Sample Projects
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenAddModal}
+                      className="py-2 px-4 bg-brand-600 text-white rounded-xl text-xs font-bold hover:bg-brand-700 shadow cursor-pointer"
+                    >
+                      + Add Project
+                    </button>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredProjects.map((project) => {
+                  const isSelected = selectedProjectId === project.id;
+                  const hasSavedScope =
+                    (project.saved_items_count && project.saved_items_count > 0) || project.status === 'Approved';
+                  const isLoadingThis = loadingPackageProjectId === project.id;
+
+                  return (
+                    <div
+                      key={project.id}
+                      className={`bg-white rounded-2xl border p-6 flex flex-col justify-between space-y-4 shadow-sm transition-all relative ${
+                        isSelected
+                          ? 'border-brand-500 ring-2 ring-brand-500/20'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-brand-50 text-brand-700 border border-brand-200">
+                                {project.project_code || 'CAP-PROJ'}
+                              </span>
+                              {hasSavedScope && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  Scope Package ({project.saved_items_count || 0})
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="font-bold text-base text-slate-900 mt-1 leading-snug">
+                              {project.project_name}
+                            </h3>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditModal(project)}
+                              className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                              title="Edit Project"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmProject(project)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                              title="Delete Project"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="text-xs text-slate-600 space-y-1.5">
+                          <div className="flex items-center gap-1.5 font-medium text-slate-700">
+                            <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="truncate">{project.facility_type}</span>
+                          </div>
+                          {project.operating_conditions && (
+                            <div className="flex items-start gap-1.5 text-slate-500">
+                              <Gauge className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                              <span className="line-clamp-2">{project.operating_conditions}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200 line-clamp-3 leading-relaxed font-mono">
+                          {project.scope_description}
+                        </p>
+
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          {project.disciplines.map((disc) => (
+                            <span
+                              key={disc}
+                              className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-semibold"
+                            >
+                              {disc}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] text-slate-400">
+                          {project.created_at ? new Date(project.created_at).toLocaleDateString() : 'Active'}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {hasSavedScope && (
+                            <button
+                              type="button"
+                              disabled={isLoadingThis}
+                              onClick={() => handleOpenSavedPackage(project)}
+                              className="py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              title="Open saved scope package to edit and re-export"
+                            >
+                              {isLoadingThis ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <FolderKanban className="w-3.5 h-3.5" />
+                              )}
+                              <span>Open Scope Package</span>
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleSelectProjectAndProceed(project)}
+                            className={`py-2 px-3 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer ${
+                              hasSavedScope
+                                ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                                : 'bg-brand-600 hover:bg-brand-700 text-white shadow'
+                            }`}
+                            title={hasSavedScope ? 'Re-generate AI-matched requirements' : 'Select Project & Generate RFP'}
+                          >
+                            {hasSavedScope ? <Sparkles className="w-3.5 h-3.5 text-amber-500" /> : null}
+                            <span>{hasSavedScope ? 'Re-Match' : 'Select & Generate RFP'}</span>
+                            {!hasSavedScope && <ArrowRight className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ========================================================================= */}
       {/* STEP 2: GENERATE RFPS                                                    */}
@@ -847,6 +1025,31 @@ export default function ProjectScoping() {
               Change Project
             </button>
           </div>
+
+          {/* Banner if project already has a saved scope package */}
+          {activeProject && (activeProject.saved_items_count ?? 0) > 0 && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                <div>
+                  <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
+                    Saved Scope Package Available ({activeProject.saved_items_count} clauses)
+                  </h4>
+                  <p className="text-xs text-emerald-700 mt-0.5">
+                    This project already has a curated scope package. You can open it directly to edit and re-export, or generate a fresh AI match below.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleOpenSavedPackage(activeProject)}
+                className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
+              >
+                <FolderKanban className="w-3.5 h-3.5" />
+                Open Saved Scope in Step 3
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left 2 Cols: Selected Project Details & Match Configuration */}
@@ -1062,6 +1265,16 @@ export default function ProjectScoping() {
               <div className="flex flex-wrap items-center gap-2.5">
                 <button
                   type="button"
+                  onClick={() => setCurrentStep(1)}
+                  className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Return to Projects list"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  Projects
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setIsSearchModalOpen(true)}
                   className="py-2 px-3.5 bg-brand-50 hover:bg-brand-100 text-brand-700 border border-brand-200 rounded-xl text-xs font-bold shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
                 >
@@ -1093,7 +1306,11 @@ export default function ProjectScoping() {
                   onClick={() => saveRFPMutation.mutate(rfpPackage)}
                   className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
-                  <Database className="w-3.5 h-3.5" />
+                  {saveRFPMutation.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Database className="w-3.5 h-3.5" />
+                  )}
                   {saveRFPMutation.isPending ? 'Saving...' : 'Save Scope Package'}
                 </button>
               </div>
@@ -1121,203 +1338,252 @@ export default function ProjectScoping() {
           </div>
 
           {/* SECTION: Mandatory Requirements */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-rose-700 flex items-center gap-2 uppercase tracking-wider">
                 <span className="w-2.5 h-2.5 rounded-full bg-rose-600 inline-block"></span>
                 Mandatory Engineering Requirements ({rfpPackage.mandatory_requirements.length})
               </h3>
-              <span className="text-xs text-slate-500">Toggle inclusion or delete with Lessons Learned rationale</span>
+              <span className="text-xs text-slate-500">Grouped by discipline & sorted by requirement number</span>
             </div>
 
             {rfpPackage.mandatory_requirements.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-400">No mandatory requirements in this package.</div>
             ) : (
-              <div className="space-y-3">
-                {rfpPackage.mandatory_requirements.map((item) => {
-                  const isSelected = selectedItems[item.scoping_item_id] ?? true;
-                  return (
-                    <div
-                      key={item.scoping_item_id}
-                      className={`p-4 rounded-xl border text-xs transition-all flex items-start gap-3.5 ${
-                        isSelected
-                          ? 'bg-rose-50/40 border-rose-200 text-slate-900 shadow-sm'
-                          : 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'
-                      }`}
-                    >
-                      {/* Checkbox Toggle */}
-                      <button
-                        type="button"
-                        onClick={() => toggleItem(item.scoping_item_id)}
-                        className="mt-0.5 text-rose-600 shrink-0 hover:scale-110 transition-transform cursor-pointer"
-                        title={isSelected ? 'Included in export (Click to exclude)' : 'Excluded (Click to include)'}
-                      >
-                        {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                      </button>
+              <div className="space-y-6">
+                {groupRequirementsByDiscipline(rfpPackage.mandatory_requirements).map(({ discipline, items }) => (
+                  <div key={discipline} className="space-y-3">
+                    <div className="flex items-center gap-2.5 pb-1 border-b border-slate-100">
+                      <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-rose-600" />
+                        {discipline}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100/70 text-rose-800 border border-rose-200/60">
+                        {items.length} {items.length === 1 ? 'clause' : 'clauses'}
+                      </span>
+                    </div>
 
-                      {/* Content */}
-                      <div className="space-y-1.5 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-rose-800 bg-rose-100/70 px-2 py-0.5 rounded text-[11px]">
-                              {item.requirement_code || 'REQ'}
-                            </span>
-                            <span className="font-semibold text-slate-600">{item.engineering_discipline}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-semibold text-slate-500">
-                              Match: {(item.relevance_score * 100).toFixed(0)}%
-                            </span>
+                    <div className="space-y-3">
+                      {items.map((item) => {
+                        const isSelected = selectedItems[item.scoping_item_id] ?? true;
+                        return (
+                          <div
+                            key={item.scoping_item_id}
+                            className={`p-4 rounded-xl border text-xs transition-all flex items-start gap-3.5 ${
+                              isSelected
+                                ? 'bg-rose-50/40 border-rose-200 text-slate-900 shadow-sm'
+                                : 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'
+                            }`}
+                          >
+                            {/* Checkbox Toggle */}
                             <button
                               type="button"
-                              onClick={() => setDeleteItemTarget(item)}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-100 transition-colors cursor-pointer"
-                              title="Delete requirement & log to Lessons Learned"
+                              onClick={() => toggleItem(item.scoping_item_id)}
+                              className="mt-0.5 text-rose-600 shrink-0 hover:scale-110 transition-transform cursor-pointer"
+                              title={isSelected ? 'Included in export (Click to exclude)' : 'Excluded (Click to include)'}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                             </button>
+
+                            {/* Content */}
+                            <div className="space-y-1.5 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-rose-800 bg-rose-100/70 px-2 py-0.5 rounded text-[11px]">
+                                    {item.requirement_code || 'REQ'}
+                                  </span>
+                                  <span className="font-semibold text-slate-600">{item.engineering_discipline}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-semibold text-slate-500">
+                                    Match: {(item.relevance_score * 100).toFixed(0)}%
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteItemTarget(item)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-100 transition-colors cursor-pointer"
+                                    title="Delete requirement & log to Lessons Learned"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="font-normal leading-relaxed text-slate-800">{item.requirement_text}</p>
+                              {item.custom_notes && (
+                                <div className="text-[11px] font-mono text-brand-700 bg-brand-50 p-1.5 rounded">
+                                  {item.custom_notes}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        <p className="font-normal leading-relaxed text-slate-800">{item.requirement_text}</p>
-                        {item.custom_notes && (
-                          <div className="text-[11px] font-mono text-brand-700 bg-brand-50 p-1.5 rounded">
-                            {item.custom_notes}
-                          </div>
-                        )}
-                      </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
           {/* SECTION: Recommended Best Practices */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-amber-700 flex items-center gap-2 uppercase tracking-wider">
                 <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
                 Recommended Best Practices ({rfpPackage.recommendations.length})
               </h3>
-              <span className="text-xs text-slate-500">Optional recommendations for contractor scope</span>
+              <span className="text-xs text-slate-500">Grouped by discipline & sorted by requirement number</span>
             </div>
 
             {rfpPackage.recommendations.length === 0 ? (
               <div className="p-8 text-center text-xs text-slate-400">No recommendations in this package.</div>
             ) : (
-              <div className="space-y-3">
-                {rfpPackage.recommendations.map((item) => {
-                  const isSelected = selectedItems[item.scoping_item_id] ?? true;
-                  return (
-                    <div
-                      key={item.scoping_item_id}
-                      className={`p-4 rounded-xl border text-xs transition-all flex items-start gap-3.5 ${
-                        isSelected
-                          ? 'bg-amber-50/40 border-amber-200 text-slate-900 shadow-sm'
-                          : 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleItem(item.scoping_item_id)}
-                        className="mt-0.5 text-amber-600 shrink-0 hover:scale-110 transition-transform cursor-pointer"
-                      >
-                        {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                      </button>
+              <div className="space-y-6">
+                {groupRequirementsByDiscipline(rfpPackage.recommendations).map(({ discipline, items }) => (
+                  <div key={discipline} className="space-y-3">
+                    <div className="flex items-center gap-2.5 pb-1 border-b border-slate-100">
+                      <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-amber-600" />
+                        {discipline}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100/70 text-amber-800 border border-amber-200/60">
+                        {items.length} {items.length === 1 ? 'clause' : 'clauses'}
+                      </span>
+                    </div>
 
-                      <div className="space-y-1.5 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded text-[11px]">
-                              {item.requirement_code || 'REC'}
-                            </span>
-                            <span className="font-semibold text-slate-600">{item.engineering_discipline}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-semibold text-slate-500">
-                              Match: {(item.relevance_score * 100).toFixed(0)}%
-                            </span>
+                    <div className="space-y-3">
+                      {items.map((item) => {
+                        const isSelected = selectedItems[item.scoping_item_id] ?? true;
+                        return (
+                          <div
+                            key={item.scoping_item_id}
+                            className={`p-4 rounded-xl border text-xs transition-all flex items-start gap-3.5 ${
+                              isSelected
+                                ? 'bg-amber-50/40 border-amber-200 text-slate-900 shadow-sm'
+                                : 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'
+                            }`}
+                          >
                             <button
                               type="button"
-                              onClick={() => setDeleteItemTarget(item)}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-100 transition-colors cursor-pointer"
-                              title="Delete requirement & log to Lessons Learned"
+                              onClick={() => toggleItem(item.scoping_item_id)}
+                              className="mt-0.5 text-amber-600 shrink-0 hover:scale-110 transition-transform cursor-pointer"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                             </button>
+
+                            <div className="space-y-1.5 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded text-[11px]">
+                                    {item.requirement_code || 'REC'}
+                                  </span>
+                                  <span className="font-semibold text-slate-600">{item.engineering_discipline}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-semibold text-slate-500">
+                                    Match: {(item.relevance_score * 100).toFixed(0)}%
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteItemTarget(item)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-100 transition-colors cursor-pointer"
+                                    title="Delete requirement & log to Lessons Learned"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="font-normal leading-relaxed text-slate-800">{item.requirement_text}</p>
+                              {item.custom_notes && (
+                                <div className="text-[11px] font-mono text-brand-700 bg-brand-50 p-1.5 rounded">
+                                  {item.custom_notes}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        <p className="font-normal leading-relaxed text-slate-800">{item.requirement_text}</p>
-                        {item.custom_notes && (
-                          <div className="text-[11px] font-mono text-brand-700 bg-brand-50 p-1.5 rounded">
-                            {item.custom_notes}
-                          </div>
-                        )}
-                      </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             )}
           </div>
 
           {/* SECTION: Guidelines & Options */}
           {rfpPackage.guidelines.length > 0 && (
-            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                 <h3 className="font-bold text-sm text-blue-700 flex items-center gap-2 uppercase tracking-wider">
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block"></span>
                   Design Guidelines & Options ({rfpPackage.guidelines.length})
                 </h3>
+                <span className="text-xs text-slate-500">Grouped by discipline & sorted by requirement number</span>
               </div>
 
-              <div className="space-y-3">
-                {rfpPackage.guidelines.map((item) => {
-                  const isSelected = selectedItems[item.scoping_item_id] ?? true;
-                  return (
-                    <div
-                      key={item.scoping_item_id}
-                      className={`p-4 rounded-xl border text-xs transition-all flex items-start gap-3.5 ${
-                        isSelected
-                          ? 'bg-blue-50/40 border-blue-200 text-slate-900 shadow-sm'
-                          : 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleItem(item.scoping_item_id)}
-                        className="mt-0.5 text-blue-600 shrink-0 hover:scale-110 transition-transform cursor-pointer"
-                      >
-                        {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
-                      </button>
+              <div className="space-y-6">
+                {groupRequirementsByDiscipline(rfpPackage.guidelines).map(({ discipline, items }) => (
+                  <div key={discipline} className="space-y-3">
+                    <div className="flex items-center gap-2.5 pb-1 border-b border-slate-100">
+                      <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5 text-blue-600" />
+                        {discipline}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100/70 text-blue-800 border border-blue-200/60">
+                        {items.length} {items.length === 1 ? 'clause' : 'clauses'}
+                      </span>
+                    </div>
 
-                      <div className="space-y-1.5 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-blue-800 bg-blue-100/70 px-2 py-0.5 rounded text-[11px]">
-                              {item.requirement_code || 'GDL'}
-                            </span>
-                            <span className="font-semibold text-slate-600">{item.engineering_discipline}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-semibold text-slate-500">
-                              Match: {(item.relevance_score * 100).toFixed(0)}%
-                            </span>
+                    <div className="space-y-3">
+                      {items.map((item) => {
+                        const isSelected = selectedItems[item.scoping_item_id] ?? true;
+                        return (
+                          <div
+                            key={item.scoping_item_id}
+                            className={`p-4 rounded-xl border text-xs transition-all flex items-start gap-3.5 ${
+                              isSelected
+                                ? 'bg-blue-50/40 border-blue-200 text-slate-900 shadow-sm'
+                                : 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'
+                            }`}
+                          >
                             <button
                               type="button"
-                              onClick={() => setDeleteItemTarget(item)}
-                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-100 transition-colors cursor-pointer"
-                              title="Delete requirement & log to Lessons Learned"
+                              onClick={() => toggleItem(item.scoping_item_id)}
+                              className="mt-0.5 text-blue-600 shrink-0 hover:scale-110 transition-transform cursor-pointer"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
                             </button>
+
+                            <div className="space-y-1.5 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-blue-800 bg-blue-100/70 px-2 py-0.5 rounded text-[11px]">
+                                    {item.requirement_code || 'GDL'}
+                                  </span>
+                                  <span className="font-semibold text-slate-600">{item.engineering_discipline}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-semibold text-slate-500">
+                                    Match: {(item.relevance_score * 100).toFixed(0)}%
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteItemTarget(item)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-100 transition-colors cursor-pointer"
+                                    title="Delete requirement & log to Lessons Learned"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                              <p className="font-normal leading-relaxed text-slate-800">{item.requirement_text}</p>
+                            </div>
                           </div>
-                        </div>
-                        <p className="font-normal leading-relaxed text-slate-800">{item.requirement_text}</p>
-                      </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
           )}
