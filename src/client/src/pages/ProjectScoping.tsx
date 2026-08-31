@@ -307,7 +307,7 @@ export default function ProjectScoping() {
                 <div
                   key={item.scoping_item_id}
                   onClick={() => toggleItem(item.scoping_item_id)}
-                  className={`p-3.5 rounded-lg border text-xs cursor-pointer transition-all flex items-start gap-3 ${
+                  className={`p-3.5 rounded-lg border text-xs cursor-pointer transition-all flex items-start gap-3 deferred-requirement-card ${
                     selectedItems[item.scoping_item_id]
                       ? 'bg-rose-50/50 border-rose-200 text-slate-900'
                       : 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'
@@ -325,7 +325,7 @@ export default function ProjectScoping() {
                       <span className="font-mono font-bold text-rose-800">{item.requirement_code || 'REQ'}</span>
                       <span className="font-medium text-slate-500">{item.engineering_discipline}</span>
                     </div>
-                    <p className="font-normal leading-relaxed">{item.requirement_text}</p>
+                    <p className="font-normal leading-relaxed text-pretty">{item.requirement_text}</p>
                   </div>
                 </div>
               ))}
@@ -342,7 +342,7 @@ export default function ProjectScoping() {
                 <div
                   key={item.scoping_item_id}
                   onClick={() => toggleItem(item.scoping_item_id)}
-                  className={`p-3.5 rounded-lg border text-xs cursor-pointer transition-all flex items-start gap-3 ${
+                  className={`p-3.5 rounded-lg border text-xs cursor-pointer transition-all flex items-start gap-3 deferred-requirement-card ${
                     selectedItems[item.scoping_item_id]
                       ? 'bg-amber-50/50 border-amber-200 text-slate-900'
                       : 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'
@@ -360,7 +360,7 @@ export default function ProjectScoping() {
                       <span className="font-mono font-bold text-amber-800">{item.requirement_code || 'REC'}</span>
                       <span className="font-medium text-slate-500">{item.engineering_discipline}</span>
                     </div>
-                    <p className="font-normal leading-relaxed">{item.requirement_text}</p>
+                    <p className="font-normal leading-relaxed text-pretty">{item.requirement_text}</p>
                   </div>
                 </div>
               ))}

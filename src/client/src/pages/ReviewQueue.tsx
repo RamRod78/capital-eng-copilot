@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ClipboardCheck,
@@ -79,6 +79,20 @@ export default function ReviewQueue() {
 
   // Effective SME Reviewer for action logging
   const activeSigner = reviewerFilter !== 'All' ? reviewerFilter : 'Senior Mechanical SME';
+
+  // Dismiss modals on Escape key (Modern Web Guidance: platform-controls-dismiss-dialog)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (editingItem) setEditingItem(null);
+        if (flaggingItem) setFlaggingItem(null);
+      }
+    };
+    if (editingItem || flaggingItem) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [editingItem, flaggingItem]);
 
   // Fetch extractions query
   const { data: extractions = [], isLoading } = useQuery({
@@ -478,7 +492,7 @@ export default function ReviewQueue() {
             return (
               <div
                 key={group.groupKey}
-                className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all"
+                className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden transition-all deferred-requirement-card"
               >
                 {/* Document Group Header Banner */}
                 <div className="bg-slate-50/90 border-b border-slate-200 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -646,7 +660,7 @@ export default function ReviewQueue() {
                                 </span>
                               </td>
                               <td className="p-3">
-                                <p className="max-w-md font-normal leading-relaxed text-slate-800 line-clamp-3 hover:line-clamp-none transition-all">
+                                <p className="max-w-md font-normal leading-relaxed text-slate-800 text-pretty line-clamp-3 hover:line-clamp-none transition-all">
                                   {item.requirement_text}
                                 </p>
                                 {item.sme_comments && (
@@ -731,10 +745,15 @@ export default function ReviewQueue() {
 
       {/* Edit Drawer / Modal */}
       {editingItem && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-clause-modal-title"
+        >
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+              <h3 id="edit-clause-modal-title" className="font-bold text-base text-slate-900 flex items-center gap-2">
                 <Edit3 className="w-5 h-5 text-brand-600" />
                 Edit Specification Clause: {editingItem.requirement_code || 'REQ'}
               </h3>
@@ -857,10 +876,15 @@ export default function ReviewQueue() {
 
       {/* Flag Standard Modal */}
       {flaggingItem && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="flag-document-modal-title"
+        >
           <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+              <h3 id="flag-document-modal-title" className="font-bold text-base text-slate-900 flex items-center gap-2">
                 <Flag className="w-5 h-5 text-rose-600" />
                 Flag Upstream Document Revision
               </h3>

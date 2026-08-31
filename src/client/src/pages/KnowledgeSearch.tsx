@@ -155,7 +155,7 @@ export default function KnowledgeSearch() {
               {results.map((r, idx) => (
                 <div
                   key={r.extraction_id || idx}
-                  className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3 hover:border-brand-300 transition-colors"
+                  className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3 hover:border-brand-300 transition-colors deferred-requirement-card"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -178,7 +178,7 @@ export default function KnowledgeSearch() {
                     </div>
                   </div>
 
-                  <p className="text-sm text-slate-800 leading-relaxed font-normal bg-slate-50 p-3 rounded-lg border border-slate-100">
+                  <p className="text-sm text-slate-800 leading-relaxed font-normal bg-slate-50 p-3 rounded-lg border border-slate-100 text-pretty">
                     {r.requirement_text}
                   </p>
 

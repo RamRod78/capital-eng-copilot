@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ShieldAlert,
@@ -63,6 +63,19 @@ export default function Admin() {
   const queryClient = useQueryClient();
   const [activePurge, setActivePurge] = useState<PurgeConfig | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Dismiss modal on Escape key (Modern Web Guidance: platform-controls-dismiss-dialog)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && activePurge) {
+        setActivePurge(null);
+      }
+    };
+    if (activePurge) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [activePurge]);
 
   // Fetch current database counts
   const {
@@ -324,6 +337,7 @@ export default function Admin() {
             className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-scale-up"
             role="dialog"
             aria-modal="true"
+            aria-labelledby="purge-modal-title"
           >
             {/* Modal Header */}
             <div className="bg-rose-50 p-6 border-b border-rose-100 flex items-start gap-4">
@@ -331,7 +345,7 @@ export default function Admin() {
                 <AlertOctagon className="w-8 h-8" />
               </div>
               <div className="space-y-1">
-                <h3 className="text-lg font-black text-rose-950">Are you sure?</h3>
+                <h3 id="purge-modal-title" className="text-lg font-black text-rose-950">Are you sure?</h3>
                 <p className="text-xs font-semibold text-rose-700 uppercase tracking-wider">
                   Permanent Data Deletion Warning
                 </p>
