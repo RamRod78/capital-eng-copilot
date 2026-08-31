@@ -18,6 +18,46 @@ feedbackRouter.get('/lessons', async (c) => {
   }
 });
 
+// Create feedback lesson (e.g. deletion reason or added requirement rationale during scoping)
+feedbackRouter.post('/lessons', async (c) => {
+  try {
+    const body = await c.req.json();
+    const {
+      extraction_id,
+      project_scope_id,
+      original_text,
+      reviewed_text,
+      original_status,
+      final_status,
+      reviewer,
+      reason,
+    } = body;
+
+    if (!original_text || !reason) {
+      return c.json({ error: 'Original text and reasoning are required' }, 400);
+    }
+
+    const [lesson] = await db
+      .insert(feedbackLessons)
+      .values({
+        extractionId: extraction_id || null,
+        projectScopeId: project_scope_id || null,
+        originalText: original_text,
+        reviewedText: reviewed_text || null,
+        originalStatus: original_status || 'Included in Scope',
+        finalStatus: final_status || 'Approved',
+        reviewer: reviewer || 'SME Reviewer',
+        reason: reason,
+      })
+      .returning();
+
+    return c.json(lesson, 201);
+  } catch (err: any) {
+    console.error('Error creating feedback lesson:', err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // Get document revision flags
 feedbackRouter.get('/flags', async (c) => {
   try {

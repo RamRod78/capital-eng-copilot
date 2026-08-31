@@ -3,10 +3,170 @@ import { db, pool } from '../db/index.js';
 import { projectScopes, scopingItems } from '../db/schema.js';
 import { getEmbedding } from '../services/gemini.js';
 import { randomUUID } from 'crypto';
+import { eq, desc } from 'drizzle-orm';
 
 export const scopingRouter = new Hono();
 
-// Match requirements for scope
+function formatProjectRow(row: any) {
+  return {
+    id: row.id,
+    project_name: row.projectName,
+    project_code: row.projectCode,
+    facility_type: row.facilityType,
+    operating_conditions: row.operatingConditions,
+    scope_description: row.scopeDescription,
+    disciplines: Array.isArray(row.disciplines) ? row.disciplines : [],
+    status: row.status || 'Draft',
+    created_by: row.createdBy || 'Engineering Lead',
+    created_at: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    updated_at: row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  };
+}
+
+// 1. List all projects
+scopingRouter.get('/projects', async (c) => {
+  try {
+    const rows = await db
+      .select()
+      .from(projectScopes)
+      .orderBy(desc(projectScopes.createdAt));
+    return c.json(rows.map(formatProjectRow));
+  } catch (err: any) {
+    console.error('Error fetching projects:', err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 2. Get single project by ID with items
+scopingRouter.get('/projects/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const [row] = await db.select().from(projectScopes).where(eq(projectScopes.id, id));
+    if (!row) {
+      return c.json({ error: 'Project not found' }, 404);
+    }
+
+    const items = await db
+      .select()
+      .from(scopingItems)
+      .where(eq(scopingItems.projectScopeId, id))
+      .orderBy(desc(scopingItems.relevanceScore));
+
+    return c.json({
+      project: formatProjectRow(row),
+      items: items.map((it) => ({
+        scoping_item_id: it.id,
+        extraction_id: it.extractionId,
+        requirement_code: it.requirementCode,
+        requirement_text: it.requirementText,
+        item_type: it.itemType,
+        engineering_discipline: it.engineeringDiscipline,
+        compliance_level: it.complianceLevel,
+        relevance_score: it.relevanceScore,
+        is_selected: it.isSelected,
+        custom_notes: it.customNotes,
+      })),
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 3. Create a new project
+scopingRouter.post('/projects', async (c) => {
+  try {
+    const body = await c.req.json();
+    const {
+      project_name,
+      project_code,
+      facility_type,
+      operating_conditions,
+      disciplines,
+      scope_description,
+      status,
+      created_by,
+    } = body;
+
+    if (!project_name || !facility_type || !scope_description) {
+      return c.json({ error: 'Project name, facility type, and scope description are required' }, 400);
+    }
+
+    const [newProject] = await db
+      .insert(projectScopes)
+      .values({
+        id: randomUUID(),
+        projectName: project_name,
+        projectCode: project_code || null,
+        facilityType: facility_type,
+        operatingConditions: operating_conditions || null,
+        scopeDescription: scope_description,
+        disciplines: Array.isArray(disciplines) ? disciplines : [],
+        status: status || 'Configured',
+        createdBy: created_by || 'Engineering Lead',
+      })
+      .returning();
+
+    return c.json(formatProjectRow(newProject), 201);
+  } catch (err: any) {
+    console.error('Error creating project:', err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 4. Update an existing project
+scopingRouter.patch('/projects/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const body = await c.req.json();
+
+    const [existing] = await db.select().from(projectScopes).where(eq(projectScopes.id, id));
+    if (!existing) {
+      return c.json({ error: 'Project not found' }, 404);
+    }
+
+    const [updated] = await db
+      .update(projectScopes)
+      .set({
+        projectName: body.project_name ?? existing.projectName,
+        projectCode: body.project_code !== undefined ? body.project_code : existing.projectCode,
+        facilityType: body.facility_type ?? existing.facilityType,
+        operatingConditions: body.operating_conditions !== undefined ? body.operating_conditions : existing.operatingConditions,
+        scopeDescription: body.scope_description ?? existing.scopeDescription,
+        disciplines: body.disciplines ?? existing.disciplines,
+        status: body.status ?? existing.status,
+        updatedAt: new Date(),
+      })
+      .where(eq(projectScopes.id, id))
+      .returning();
+
+    return c.json(formatProjectRow(updated));
+  } catch (err: any) {
+    console.error('Error updating project:', err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 5. Delete a project
+scopingRouter.delete('/projects/:id', async (c) => {
+  try {
+    const id = c.req.param('id');
+    const [deleted] = await db
+      .delete(projectScopes)
+      .where(eq(projectScopes.id, id))
+      .returning();
+
+    if (!deleted) {
+      return c.json({ error: 'Project not found' }, 404);
+    }
+
+    return c.json({ success: true, id });
+  } catch (err: any) {
+    console.error('Error deleting project:', err);
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 6. Match requirements for scope
 scopingRouter.post('/match', async (c) => {
   try {
     const scopeInput = await c.req.json();
@@ -114,23 +274,44 @@ scopingRouter.post('/match', async (c) => {
   }
 });
 
-// Save curated RFP Package to database
+// 7. Save curated RFP Package to database
 scopingRouter.post('/save', async (c) => {
   try {
     const pkg = await c.req.json();
     const { package_id, project_name, project_code, facility_type, scope_summary, mandatory_requirements, recommendations, guidelines } = pkg;
 
-    const [scopeRecord] = await db
-      .insert(projectScopes)
-      .values({
-        id: package_id || randomUUID(),
-        projectName: project_name,
-        projectCode: project_code || null,
-        facilityType: facility_type,
-        scopeDescription: scope_summary,
-        status: 'Approved',
-      })
-      .returning();
+    const targetId = package_id || randomUUID();
+    const [existing] = await db.select().from(projectScopes).where(eq(projectScopes.id, targetId));
+
+    let scopeId = targetId;
+    if (existing) {
+      await db
+        .update(projectScopes)
+        .set({
+          projectName: project_name,
+          projectCode: project_code || null,
+          facilityType: facility_type,
+          scopeDescription: scope_summary,
+          status: 'Approved',
+          updatedAt: new Date(),
+        })
+        .where(eq(projectScopes.id, targetId));
+      // Delete existing scoping items for this scope to replace with updated curated set
+      await db.delete(scopingItems).where(eq(scopingItems.projectScopeId, targetId));
+    } else {
+      const [scopeRecord] = await db
+        .insert(projectScopes)
+        .values({
+          id: targetId,
+          projectName: project_name,
+          projectCode: project_code || null,
+          facilityType: facility_type,
+          scopeDescription: scope_summary,
+          status: 'Approved',
+        })
+        .returning();
+      scopeId = scopeRecord.id;
+    }
 
     const allItems = [
       ...(mandatory_requirements || []),
@@ -141,7 +322,7 @@ scopingRouter.post('/save', async (c) => {
     for (const it of allItems) {
       await db.insert(scopingItems).values({
         id: it.scoping_item_id || randomUUID(),
-        projectScopeId: scopeRecord.id,
+        projectScopeId: scopeId,
         extractionId: it.extraction_id || null,
         requirementCode: it.requirement_code || null,
         requirementText: it.requirement_text,
@@ -154,7 +335,7 @@ scopingRouter.post('/save', async (c) => {
       });
     }
 
-    return c.json({ success: true, scopeId: scopeRecord.id });
+    return c.json({ success: true, scopeId });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

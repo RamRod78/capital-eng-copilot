@@ -4,8 +4,12 @@ import {
   SMEReviewUpdate,
   SearchResult,
   ProjectScopeInput,
+  ProjectScopeRecord,
+  ProjectCreateInput,
+  ScopingRequirementItem,
   RFPPackage,
   FeedbackEntry,
+  FeedbackEntryCreate,
   DocumentRevisionFlag,
 } from '@shared/schemas';
 
@@ -124,6 +128,55 @@ export async function bulkUpdateExtractions(data: {
   return res.json();
 }
 
+export async function fetchProjects(): Promise<ProjectScopeRecord[]> {
+  const res = await fetch(`${API_BASE}/scoping/projects`);
+  if (!res.ok) throw new Error('Failed to fetch projects');
+  return res.json();
+}
+
+export async function fetchProject(id: string): Promise<{ project: ProjectScopeRecord; items: ScopingRequirementItem[] }> {
+  const res = await fetch(`${API_BASE}/scoping/projects/${id}`);
+  if (!res.ok) throw new Error('Failed to fetch project details');
+  return res.json();
+}
+
+export async function createProject(data: ProjectCreateInput): Promise<ProjectScopeRecord> {
+  const res = await fetch(`${API_BASE}/scoping/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to create project');
+  }
+  return res.json();
+}
+
+export async function updateProject(id: string, data: Partial<ProjectCreateInput>): Promise<ProjectScopeRecord> {
+  const res = await fetch(`${API_BASE}/scoping/projects/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to update project');
+  }
+  return res.json();
+}
+
+export async function deleteProject(id: string): Promise<{ success: boolean; id: string }> {
+  const res = await fetch(`${API_BASE}/scoping/projects/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to delete project');
+  }
+  return res.json();
+}
+
 export async function matchScopeRequirements(input: ProjectScopeInput & { top_k?: number }): Promise<RFPPackage> {
   const res = await fetch(`${API_BASE}/scoping/match`, {
     method: 'POST',
@@ -153,6 +206,19 @@ export async function saveRFPPackage(pkg: RFPPackage) {
 export async function fetchFeedbackLessons(): Promise<FeedbackEntry[]> {
   const res = await fetch(`${API_BASE}/feedback/lessons`);
   if (!res.ok) throw new Error('Failed to fetch lessons');
+  return res.json();
+}
+
+export async function createFeedbackLesson(data: FeedbackEntryCreate): Promise<FeedbackEntry> {
+  const res = await fetch(`${API_BASE}/feedback/lessons`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to create feedback lesson');
+  }
   return res.json();
 }
 

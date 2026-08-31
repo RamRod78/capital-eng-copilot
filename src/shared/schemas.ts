@@ -250,14 +250,42 @@ export const SearchResultSchema = z.object({
 export type SearchResult = z.infer<typeof SearchResultSchema>;
 
 // Milestone 3: Project Scoping & RFP Schemas
-export const ProjectScopeInputSchema = z.object({
+export const ProjectScopeRecordSchema = z.object({
+  id: z.string().uuid(),
+  project_name: z.string(),
+  project_code: z.string().nullable().optional(),
+  facility_type: z.string(),
+  operating_conditions: z.string().nullable().optional(),
+  scope_description: z.string(),
+  disciplines: z.array(z.string()).default([]),
+  status: z.string().default('Draft'),
+  created_by: z.string().default('Engineering Lead'),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+});
+export type ProjectScopeRecord = z.infer<typeof ProjectScopeRecordSchema>;
+
+export const ProjectCreateInputSchema = z.object({
   project_name: z.string().min(3, 'Project name must be at least 3 characters'),
   project_code: z.string().nullable().optional(),
   facility_type: z.string().min(1, 'Facility type is required'),
   operating_conditions: z.string().nullable().optional(),
-  disciplines: z.array(EngineeringDiscipline).default([]),
+  disciplines: z.array(z.string()).default([]),
   scope_description: z.string().min(10, 'Scope description must be at least 10 characters'),
-  target_delivery_format: z.string().default('Vendor RFP Document'),
+  status: z.string().default('Draft'),
+  created_by: z.string().default('Engineering Lead'),
+});
+export type ProjectCreateInput = z.infer<typeof ProjectCreateInputSchema>;
+
+export const ProjectScopeInputSchema = z.object({
+  project_id: z.string().uuid().optional(),
+  project_name: z.string().min(3, 'Project name must be at least 3 characters'),
+  project_code: z.string().nullable().optional(),
+  facility_type: z.string().min(1, 'Facility type is required'),
+  operating_conditions: z.string().nullable().optional(),
+  disciplines: z.array(z.string()).default([]),
+  scope_description: z.string().min(10, 'Scope description must be at least 10 characters'),
+  target_delivery_format: z.string().optional().default('Vendor RFP Document'),
 });
 export type ProjectScopeInput = z.infer<typeof ProjectScopeInputSchema>;
 
@@ -303,6 +331,18 @@ export const FeedbackEntrySchema = z.object({
   created_at: z.string().optional(),
 });
 export type FeedbackEntry = z.infer<typeof FeedbackEntrySchema>;
+
+export const FeedbackEntryCreateSchema = z.object({
+  extraction_id: z.string().uuid().nullable().optional(),
+  project_scope_id: z.string().uuid().nullable().optional(),
+  original_text: z.string(),
+  reviewed_text: z.string().nullable().optional(),
+  original_status: z.string().default('Included in RFP'),
+  final_status: ReviewStatus.default('Approved'),
+  reviewer: z.string().min(1, 'Reviewer name is required'),
+  reason: z.string().min(1, 'Reason is required'),
+});
+export type FeedbackEntryCreate = z.infer<typeof FeedbackEntryCreateSchema>;
 
 export const DocumentRevisionFlagSchema = z.object({
   id: z.string().uuid(),
