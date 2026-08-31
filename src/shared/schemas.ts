@@ -80,7 +80,7 @@ export function formatRequirementCode(discipline: string | undefined | null, seq
 export function assignUniqueRequirementCodes<T extends { requirement_code?: string | null; engineering_discipline?: string | null }>(
   items: T[],
   options?: { perDiscipline?: boolean; startingSequence?: number }
-): T[] {
+): (T & { requirement_code: string })[] {
   const perDiscipline = options?.perDiscipline ?? true;
   const startingSeq = options?.startingSequence ?? 1;
 
