@@ -35,6 +35,8 @@ const vector = customType<{ data: number[] }>({
 export const documents = pgTable('documents', {
   id: uuid('id').defaultRandom().primaryKey(),
   filename: varchar('filename', { length: 255 }).notNull(),
+  documentNumber: varchar('document_number', { length: 100 }),
+  documentDate: varchar('document_date', { length: 50 }),
   documentType: varchar('document_type', { length: 50 }).notNull().default('Standard'),
   ownerSme: varchar('owner_sme', { length: 100 }).default('Engineering Lead'),
   version: varchar('version', { length: 50 }).default('1.0'),

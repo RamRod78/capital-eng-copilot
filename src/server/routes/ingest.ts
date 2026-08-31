@@ -23,9 +23,19 @@ ingestRouter.post('/parse-file', async (c) => {
       return c.json({ error }, 400);
     }
 
+    // Attempt to extract suggested document number from text or filename
+    const docNumMatch = text.match(/(?:Doc(?:ument)?\s*(?:No\.?|Number|#)|Specification\s*(?:No\.?|Number|#)|Spec\s*(?:No\.?|Number|#))\s*[:\-]?\s*([A-Za-z0-9_\-\.\/]+)/i);
+    const suggestedDocNumber = docNumMatch ? docNumMatch[1] : undefined;
+
+    // Attempt to extract suggested document/revision date
+    const docDateMatch = text.match(/(?:Rev(?:ision)?\s*Date|Issue\s*Date|Date)\s*[:\-]?\s*(\d{4}[-\/]\d{2}[-\/]\d{2}|\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}|[A-Za-z]+\s+\d{1,2},?\s+\d{4})/i);
+    const suggestedDocDate = docDateMatch ? docDateMatch[1] : undefined;
+
     return c.json({
       filename: file.name,
       suggestedTitle: file.name.replace(/\.[^/.]+$/, ''),
+      suggestedDocNumber,
+      suggestedDocDate,
       text,
       charCount: text.length,
     });
@@ -37,7 +47,7 @@ ingestRouter.post('/parse-file', async (c) => {
 // Run Gemini extraction on text
 ingestRouter.post('/extract', async (c) => {
   try {
-    const { content, documentTitle, documentOwner } = await c.req.json();
+    const { content, documentTitle, documentNumber, documentDate, documentOwner } = await c.req.json();
     if (!content || !content.trim()) {
       return c.json({ error: 'Content is required for extraction' }, 400);
     }
@@ -45,8 +55,13 @@ ingestRouter.post('/extract', async (c) => {
     const batch = await extractRequirementsFromText(
       content,
       documentTitle || 'Engineering Specification',
-      documentOwner || 'General Engineering SME'
+      documentOwner || 'General Engineering SME',
+      documentNumber || null
     );
+
+    if (documentDate) {
+      batch.document_date = documentDate;
+    }
 
     return c.json(batch);
   } catch (err: any) {
@@ -58,17 +73,23 @@ ingestRouter.post('/extract', async (c) => {
 // Save extraction batch and pgvector embeddings to database
 ingestRouter.post('/save', async (c) => {
   try {
-    const { documentTitle, documentType, ownerSme, version, rawContent, batchId, items } = await c.req.json();
+    const { documentTitle, documentNumber, documentDate, documentType, ownerSme, version, rawContent, batchId, items } = await c.req.json();
 
     // 1. Insert document record
     const [doc] = await db
       .insert(documents)
       .values({
         filename: documentTitle || 'Engineering Specification',
+        documentNumber: documentNumber || null,
+        documentDate: documentDate || null,
         documentType: documentType || 'Standard',
         ownerSme: ownerSme || 'Engineering Lead',
         version: version || '1.0',
         rawContent: rawContent || '',
+        metadata: {
+          ...(documentNumber ? { documentNumber } : {}),
+          ...(documentDate ? { documentDate } : {}),
+        },
       })
       .returning();
 

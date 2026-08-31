@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ExtractionItemSchema,
   ExtractionBatchSchema,
+  DocumentRecordSchema,
   ProjectScopeInputSchema,
   RFPPackageSchema,
   DocumentRevisionFlagSchema,
@@ -24,6 +25,51 @@ describe('Zod Schema Validation', () => {
     expect(parsed.requirement_code).toBe('REQ-MEC-001');
     expect(parsed.item_type).toBe('Requirement');
     expect(parsed.confidence_score).toBe(0.95);
+  });
+
+  it('validates ExtractionBatchSchema with document_number and document_date', () => {
+    const batch = {
+      document_title: 'API 650 Welded Tanks for Oil Storage',
+      document_number: 'API-STD-650-ED13',
+      document_date: '2026-08-31',
+      document_owner: 'Mechanical SME',
+      executive_summary: 'Comprehensive design and fabrication standard for welded steel oil storage tanks.',
+      identified_disciplines: ['Mechanical', 'Civil/Structural'],
+      items: [
+        {
+          requirement_code: 'REQ-MEC-001',
+          requirement_text: 'Tanks shall be designed for wind velocity specified in ASCE 7.',
+          item_type: 'Requirement',
+          engineering_discipline: 'Mechanical',
+          compliance_level: 'Mandatory',
+        },
+      ],
+    };
+
+    const parsed = ExtractionBatchSchema.parse(batch);
+    expect(parsed.document_title).toBe('API 650 Welded Tanks for Oil Storage');
+    expect(parsed.document_number).toBe('API-STD-650-ED13');
+    expect(parsed.document_date).toBe('2026-08-31');
+    expect(parsed.items.length).toBe(1);
+  });
+
+  it('validates DocumentRecordSchema with document_number and document_date', () => {
+    const doc = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      filename: 'API 650 Storage Tanks Spec',
+      document_number: 'SPEC-2026-MEC-001',
+      document_date: '2026-08-31',
+      document_type: 'Standard',
+      owner_sme: 'Mechanical SME',
+      version: '1.0',
+      raw_content: 'Sample raw content...',
+      metadata: { documentNumber: 'SPEC-2026-MEC-001', documentDate: '2026-08-31' },
+    };
+
+    const parsed = DocumentRecordSchema.parse(doc);
+    expect(parsed.document_number).toBe('SPEC-2026-MEC-001');
+    expect(parsed.document_date).toBe('2026-08-31');
+    expect(parsed.metadata.documentNumber).toBe('SPEC-2026-MEC-001');
   });
 
   it('rejects confidence_score outside [0, 1] range', () => {

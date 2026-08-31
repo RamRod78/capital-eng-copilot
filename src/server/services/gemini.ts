@@ -35,6 +35,7 @@ Guidelines for Extraction:
 You MUST respond strictly with valid JSON conforming to the following structure:
 {
   "document_title": "string",
+  "document_number": "string or null",
   "document_owner": "string",
   "executive_summary": "string",
   "identified_disciplines": ["Mechanical", "Electrical", ...],
@@ -292,6 +293,7 @@ async function synthesizeAndDeduplicate(
   rawItems: any[],
   documentTitle: string,
   documentOwner: string,
+  documentNumber?: string | null,
   model = 'gemini-3.6-flash'
 ): Promise<ExtractionBatch> {
   // 1. In-memory de-duplication
@@ -314,11 +316,11 @@ async function synthesizeAndDeduplicate(
   ) as any[];
 
   const ai = getGeminiClient();
-  const summaryPrompt = `You are a Principal Engineering Reviewer. Synthesize the following ${uniqueItems.length} extracted engineering requirements for document "${documentTitle}".
+  const summaryPrompt = `You are a Principal Engineering Reviewer. Synthesize the following ${uniqueItems.length} extracted engineering requirements for document "${documentTitle}"${documentNumber ? ` (Doc No: ${documentNumber})` : ''}.
 Generate a unified executive summary highlighting the primary engineering scope, major equipment packages, and high-risk technical constraints, and check for any cross-discipline conflicts or omissions.
 
 Document Title: ${documentTitle}
-Lead SME: ${documentOwner}
+${documentNumber ? `Document Number: ${documentNumber}\n` : ''}Lead SME: ${documentOwner}
 Disciplines Identified: ${disciplines.join(', ')}
 
 Sample Extracted Items:
@@ -356,6 +358,7 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
 
   const batch: ExtractionBatch = {
     document_title: documentTitle,
+    document_number: documentNumber || undefined,
     document_owner: documentOwner,
     executive_summary: executiveSummary,
     identified_disciplines: identifiedDisciplines.length > 0 ? (identifiedDisciplines as any) : ['General'],
@@ -374,7 +377,8 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
 export async function extractRequirementsFromText(
   content: string,
   documentTitle = 'Engineering Specification',
-  documentOwner = 'General Engineering SME'
+  documentOwner = 'General Engineering SME',
+  documentNumber?: string | null
 ): Promise<ExtractionBatch> {
   if (!content || !content.trim()) {
     throw new Error('Document content is empty; cannot extract requirements.');
@@ -396,7 +400,7 @@ export async function extractRequirementsFromText(
 
   // Stage 3: Synthesis, De-duplication, & Cross-Discipline Review (Gemini 3.6 Flash)
   console.log(`🧠 Stage 3: Running synthesis, de-duplication, and cross-discipline review with Gemini 3.6 Flash...`);
-  const finalBatch = await synthesizeAndDeduplicate(rawItems, documentTitle, documentOwner, 'gemini-3.6-flash');
+  const finalBatch = await synthesizeAndDeduplicate(rawItems, documentTitle, documentOwner, documentNumber, 'gemini-3.6-flash');
   console.log(`✅ 3-Stage Pipeline complete: ${finalBatch.items.length} verified requirements generated.`);
 
   return finalBatch;

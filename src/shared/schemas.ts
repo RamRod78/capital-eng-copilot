@@ -65,7 +65,9 @@ export type ExtractionItem = z.infer<typeof ExtractionItemSchema>;
 export const ExtractionBatchSchema = z.object({
   batch_id: z.string().uuid().optional(),
   document_title: z.string().min(1, 'Document title is required'),
+  document_number: z.string().nullable().optional(),
   document_owner: z.string().default('General Engineering SME'),
+  document_date: z.string().nullable().optional(),
   executive_summary: z.string().nullable().optional(),
   identified_disciplines: z.array(EngineeringDiscipline).default([]),
   items: z.array(ExtractionItemSchema).default([]),
@@ -76,6 +78,8 @@ export type ExtractionBatch = z.infer<typeof ExtractionBatchSchema>;
 export const DocumentRecordSchema = z.object({
   id: z.string().uuid(),
   filename: z.string(),
+  document_number: z.string().nullable().optional(),
+  document_date: z.string().nullable().optional(),
   document_type: z.string().default('Standard'),
   owner_sme: z.string().default('Engineering Lead'),
   version: z.string().default('1.0'),

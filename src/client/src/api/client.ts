@@ -34,6 +34,8 @@ export async function parseUploadedFile(file: File) {
 export async function extractRequirements(data: {
   content: string;
   documentTitle?: string;
+  documentNumber?: string;
+  documentDate?: string;
   documentOwner?: string;
 }): Promise<ExtractionBatch> {
   const res = await fetch(`${API_BASE}/ingest/extract`, {
@@ -50,6 +52,8 @@ export async function extractRequirements(data: {
 
 export async function saveExtractionBatch(data: {
   documentTitle: string;
+  documentNumber?: string;
+  documentDate?: string;
   documentType?: string;
   ownerSme?: string;
   version?: string;

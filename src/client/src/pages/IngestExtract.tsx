@@ -18,9 +18,11 @@ export default function IngestExtract() {
 
   const [inputMode, setInputMode] = useState<'upload' | 'paste'>('upload');
   const [docTitle, setDocTitle] = useState('Project FEED Specification - Pressure Vessels & Piping');
+  const [docNumber, setDocNumber] = useState('SPEC-ENG-2026-001');
   const [docType, setDocType] = useState('Standard / Specification');
   const [docOwner, setDocOwner] = useState('Mechanical SME');
-  const [docVersion, setDocVersion] = useState('Rev 2.1');
+  const [docVersion, setDocVersion] = useState('2.1');
+  const [docDate, setDocDate] = useState('2026-08-31');
   const [rawText, setRawText] = useState('');
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -43,6 +45,12 @@ export default function IngestExtract() {
       if (data.suggestedTitle) {
         setDocTitle(data.suggestedTitle);
       }
+      if (data.suggestedDocNumber) {
+        setDocNumber(data.suggestedDocNumber);
+      }
+      if (data.suggestedDocDate) {
+        setDocDate(data.suggestedDocDate);
+      }
     } catch (err: any) {
       setParseError(err.message || 'Failed to parse file');
     } finally {
@@ -56,6 +64,8 @@ export default function IngestExtract() {
       extractRequirements({
         content: rawText,
         documentTitle: docTitle,
+        documentNumber: docNumber,
+        documentDate: docDate,
         documentOwner: docOwner,
       }),
     onSuccess: (data) => {
@@ -69,6 +79,8 @@ export default function IngestExtract() {
     mutationFn: () =>
       saveExtractionBatch({
         documentTitle: docTitle,
+        documentNumber: docNumber,
+        documentDate: docDate,
         documentType: docType,
         ownerSme: docOwner,
         version: docVersion,
@@ -180,60 +192,84 @@ export default function IngestExtract() {
             )}
 
             {/* Document Metadata Fields */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Document Title</label>
-                <input
-                  type="text"
-                  value={docTitle}
-                  onChange={(e) => setDocTitle(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
-                />
+            <div className="space-y-4 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Document Title</label>
+                  <input
+                    type="text"
+                    value={docTitle}
+                    onChange={(e) => setDocTitle(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Document Number</label>
+                  <input
+                    type="text"
+                    value={docNumber}
+                    placeholder="e.g. SPEC-ENG-2026-001"
+                    onChange={(e) => setDocNumber(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Document Type</label>
+                  <select
+                    value={docType}
+                    onChange={(e) => setDocType(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white"
+                  >
+                    <option>Standard / Specification</option>
+                    <option>FEED Dossier</option>
+                    <option>Equipment Datasheet</option>
+                    <option>Vendor RFP</option>
+                    <option>Best Practice Guideline</option>
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Document Type</label>
-                <select
-                  value={docType}
-                  onChange={(e) => setDocType(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white"
-                >
-                  <option>Standard / Specification</option>
-                  <option>FEED Dossier</option>
-                  <option>Equipment Datasheet</option>
-                  <option>Vendor RFP</option>
-                  <option>Best Practice Guideline</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Revision / Version</label>
-                <input
-                  type="text"
-                  value={docVersion}
-                  onChange={(e) => setDocVersion(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
-                />
-              </div>
-            </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
-                Assigned Document Owner / Discipline Lead
-              </label>
-              <select
-                value={docOwner}
-                onChange={(e) => setDocOwner(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white"
-              >
-                <option>Mechanical SME</option>
-                <option>Piping SME</option>
-                <option>Electrical SME</option>
-                <option>I&C Lead</option>
-                <option>Process Lead</option>
-                <option>Civil/Structural SME</option>
-                <option>HSE Lead</option>
-                <option>Quality Manager</option>
-                <option>General Engineering Lead</option>
-              </select>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Revision / Version</label>
+                  <input
+                    type="text"
+                    value={docVersion}
+                    placeholder="e.g. 2.1"
+                    onChange={(e) => setDocVersion(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Revision / Version Date</label>
+                  <input
+                    type="date"
+                    value={docDate}
+                    onChange={(e) => setDocDate(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
+                    Assigned Document Owner / Discipline Lead
+                  </label>
+                  <select
+                    value={docOwner}
+                    onChange={(e) => setDocOwner(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 p-2.5 text-sm focus:border-brand-500 focus:ring-1 focus:ring-brand-500 bg-white"
+                  >
+                    <option>Mechanical SME</option>
+                    <option>Piping SME</option>
+                    <option>Electrical SME</option>
+                    <option>I&C Lead</option>
+                    <option>Process Lead</option>
+                    <option>Civil/Structural SME</option>
+                    <option>HSE Lead</option>
+                    <option>Quality Manager</option>
+                    <option>General Engineering Lead</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
             <button
@@ -297,7 +333,19 @@ export default function IngestExtract() {
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 Extracted {extractionResult.items.length} Knowledge Items
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">{extractionResult.document_title}</p>
+              <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                <p className="text-xs text-slate-500">{extractionResult.document_title}</p>
+                {(extractionResult.document_number || docNumber) && (
+                  <span className="text-[11px] font-mono font-medium px-2 py-0.5 bg-slate-100 text-slate-700 rounded border border-slate-200">
+                    Doc #: {extractionResult.document_number || docNumber}
+                  </span>
+                )}
+                {(extractionResult.document_date || docDate) && (
+                  <span className="text-[11px] font-mono font-medium px-2 py-0.5 bg-slate-100 text-slate-700 rounded border border-slate-200">
+                    Date: {extractionResult.document_date || docDate}
+                  </span>
+                )}
+              </div>
             </div>
             <button
               type="button"
