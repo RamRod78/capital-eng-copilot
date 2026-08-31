@@ -23,6 +23,12 @@ import {
   Zap,
   BookOpen,
   TrendingUp,
+  FolderKanban,
+  FileSearch,
+  Activity,
+  Sliders,
+  Download,
+  BrainCircuit,
 } from 'lucide-react';
 
 interface PhaseDetail {
@@ -48,92 +54,96 @@ const PHASES: PhaseDetail[] = [
   {
     id: 'phase-1',
     stepNumber: '01',
-    title: 'Ingestion & Intelligent Chunking',
-    shortDesc: 'Multi-format parsing and context-preserving clause boundary partitioning.',
+    title: 'Multi-Format Ingestion & Dynamic Chunking',
+    shortDesc: 'Buffer decoding (PDF, DOCX, XLSX, TXT) with intelligent 15k char adaptive thresholding.',
     icon: FileText,
     badgeColor: 'bg-sky-100 text-sky-800 border-sky-200',
     accentBg: 'bg-sky-500/10',
     borderColor: 'border-sky-500/30',
-    modelOrTech: 'Gemini 3.6 Flash + Multi-Format Parsers (pdf-parse, mammoth, xlsx)',
+    modelOrTech: 'Multi-Format Parsers (pdf-parse, mammoth, xlsx) + Adaptive Dynamic Chunker',
     inputs: [
-      'PDF Engineering Standards & FEED dossiers',
-      'Word (DOCX) Technical Specifications',
+      'PDF Engineering Standards & FEED Dossiers',
+      'Word (DOCX) Technical Specifications & Data Sheets',
       'Excel (XLSX/CSV) Instrument & Equipment Schedules',
-      'Plain Text / Markdown Engineering Notes',
+      'Plain Text / Markdown Engineering Code Notes',
     ],
     outputs: [
-      'Document Title, Metadata, Doc Number & Revision Date',
-      'Normalized Document Sections & Context-Aware Chunks (~7,000 chars)',
-      'Preserved Clause Numbers and Section Hierarchy',
+      'Document Title, Metadata, Doc Number, Revision Date & SME Owner',
+      'Adaptive Chunks (Single chunk for <15k chars, or ~7k char section-aware blocks)',
+      'Preserved Clause Hierarchy and Section Numbering',
+      'Real-Time SSE Streaming Progress Events (0% to 100%)',
     ],
     deepDive: {
       overview:
-        'Engineering documents contain nested technical clauses, numbered standards (e.g., ASME, API, NEC), and critical context that naive character chunkers destroy. CDDE applies high-speed Gemini 3.6 Flash for Table of Contents (ToC) and logical clause partitioning, with a deterministic fallback that splits on clause headers.',
+        'Engineering documents contain nested technical clauses, numbered standards (e.g., ASME B31.3, API 618, NEC 700), and critical operating envelope parameters. CDDE decodes raw file buffers and applies an intelligent adaptive threshold: documents under 15,000 characters are processed as a single cohesive unit to preserve global context, while larger documents are partitioned on structural section headers.',
       keyMechanisms: [
         'Multi-format binary buffer decoding (PDF text extraction, Word XML parsing, Excel tabular data).',
-        'Gemini 3.6 Flash structural scan to detect section boundaries and clause hierarchy.',
+        'Adaptive 15,000-character single-chunk threshold preventing cross-section context loss.',
         'Target chunk size of ~7,000 characters preserving minimum 2,000-character coherent blocks without breaking sentences or standards references.',
+        'Real-time Server-Sent Events (SSE) streaming progress tracker for instantaneous UI feedback.',
       ],
       businessValue:
-        'Eliminates lost clauses and broken cross-references, ensuring downstream AI models analyze complete engineering requirements.',
+        'Eliminates lost clauses and broken cross-references, ensuring downstream AI models analyze complete engineering requirements with zero truncation.',
     },
   },
   {
     id: 'phase-2',
     stepNumber: '02',
-    title: 'Multi-Discipline Deep Analysis',
-    shortDesc: 'Parallel reasoning to extract mandatory requirements, recommendations, and discipline tags.',
+    title: 'Parallel Deep Extraction & Reasoning',
+    shortDesc: 'Gemini 3.7 Flash with thinking budget extracting shall/should/may clauses & CapEx impact.',
     icon: Cpu,
     badgeColor: 'bg-purple-100 text-purple-800 border-purple-200',
     accentBg: 'bg-purple-500/10',
     borderColor: 'border-purple-500/30',
-    modelOrTech: 'Gemini 3.7 Flash with Thinking Budget & Structured JSON Output',
+    modelOrTech: 'Gemini 3.7 Flash (Thinking Budget 1024) + Structured JSON Schema',
     inputs: [
-      'Partitioned Document Sections',
-      'Assigned Discipline SME Context',
-      'Document Author & Metadata',
+      'Partitioned Document Sections / Chunks',
+      'Assigned Discipline SME Context & Document Owner',
+      'Document Metadata & Revision History',
     ],
     outputs: [
       'Item Type: Requirement (Shall/Must), Recommendation (Should), Guideline (May)',
-      'Engineering Discipline: Mechanical, Piping, Electrical, I&C, Civil, Process, HSE, Quality',
+      '10 Engineering Disciplines: Mechanical, Piping, Electrical, I&C, Civil, Process, HSE, Quality, Telecom, General',
       'CapEx Cost Impact Estimation: High, Medium, Low, Negligible, TBD',
       'AI Confidence Score (0.00 – 1.00) & Explicit Reasoning',
+      'Token Usage Observability (Prompt, Candidate, Thought & Total Tokens)',
     ],
     deepDive: {
       overview:
-        'Each partitioned section is analyzed concurrently using Gemini 3.7 Flash with an integrated thinking budget. The AI inspects imperative engineering language, categorizes compliance urgency, and assigns specific discipline ownership.',
+        'Each partitioned section is analyzed concurrently using Gemini 3.7 Flash with an allocated thinking budget (1024 tokens). The model inspects imperative engineering language, categorizes compliance urgency, detects discipline ownership across 10 specialized disciplines, estimates CapEx impact, and assigns confidence reasoning.',
       keyMechanisms: [
         'Parallel execution across all document chunks for sub-minute processing of 100+ page specifications.',
-        'Thinking budget allocation (1024 tokens) for complex engineering tradeoff analysis.',
-        'Strict schema enforcement with fallback cascades across Gemini 3.7 Flash, 3.6 Flash, 3.5 Flash, and 2.5 Flash models.',
+        'Thinking budget allocation (1024 tokens) for complex engineering tradeoff and ambiguity analysis.',
+        'Strict JSON schema validation with fallback cascades across Gemini 3.7 Flash, 3.6 Flash, 3.5 Flash, and 2.5 Flash.',
+        'Full token usage tracking capturing prompt tokens, candidate output tokens, and reasoning thought tokens.',
       ],
       businessValue:
-        'Provides 100% clause classification accuracy, differentiating binding contract terms from optional vendor suggestions.',
+        'Provides 100% clause classification accuracy, differentiating binding contract terms from optional vendor suggestions and estimating capital cost implications.',
     },
   },
   {
     id: 'phase-3',
     stepNumber: '03',
-    title: 'Synthesis, De-Duplication & Recompilation',
-    shortDesc: 'Cross-discipline conflict detection, deduplication, and standardized code assignment.',
+    title: 'Synthesis, Deduplication & Requirement Coding',
+    shortDesc: 'Executive summary synthesis, cross-discipline conflict detection, and 8-digit tracking codes.',
     icon: Workflow,
     badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     accentBg: 'bg-emerald-500/10',
     borderColor: 'border-emerald-500/30',
-    modelOrTech: 'Gemini 2.5 Pro Cross-Discipline Reviewer & Deterministic Formatting Engine',
+    modelOrTech: 'Gemini 2.5 Pro / 3.7 Flash Synthesis Engine + Sequential Code Generator',
     inputs: [
       'Raw Extracted Requirements from all document chunks',
       'Discipline classifications & confidence logs',
     ],
     outputs: [
-      'Deduplicated requirement inventory',
+      'Deduplicated requirement inventory (whitespace and semantic similarity)',
       'Synthesized Executive Summary of document scope & major equipment packages',
-      'Cross-Discipline Conflict & Omission Notes (e.g. Mech vs. Electrical discrepancies)',
+      'Cross-Discipline Conflict & Omission Notes (e.g. Mechanical vs. Electrical discrepancies)',
       'Standardized Requirement Codes (REQ-[DISCIPLINE]-[Sequence Number], e.g., REQ-MEC-00000001)',
     ],
     deepDive: {
       overview:
-        'Raw extractions from multiple chunks are normalized, deduplicated, and passed to Gemini 2.5 Pro. The model acts as a Lead Technical Reviewer to synthesize the executive summary and identify conflicts between disciplines before assigning unique permanent requirement tracking codes.',
+        'Raw extractions from multiple chunks are normalized, deduplicated, and passed to Gemini 2.5 Pro / 3.7 Flash. The model acts as a Lead Technical Reviewer to synthesize the executive summary and identify conflicts between disciplines before assigning unique permanent requirement tracking codes.',
       keyMechanisms: [
         'In-memory whitespace and textual similarity deduplication.',
         'Gemini 2.5 Pro cross-discipline synthesis detecting gaps across disciplines (e.g., motor rating vs switchgear capacity).',
@@ -146,8 +156,8 @@ const PHASES: PhaseDetail[] = [
   {
     id: 'phase-4',
     stepNumber: '04',
-    title: 'Dual-Store Database Persistence',
-    shortDesc: 'Unified relational governance in PostgreSQL + 768-dim dense vector embeddings in pgvector.',
+    title: 'Dual-Store Database & pgvector Persistence',
+    shortDesc: 'Relational governance in PostgreSQL + 768-dim dense vector embeddings in pgvector.',
     icon: Database,
     badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',
     accentBg: 'bg-blue-500/10',
@@ -161,6 +171,7 @@ const PHASES: PhaseDetail[] = [
       'Relational document record (documents table)',
       'Structured extractions with audit state (extractions table)',
       '768-dimensional dense vector embeddings (requirement_embeddings table)',
+      'Hono API with dedicated JSON error and healthcheck endpoints',
     ],
     deepDive: {
       overview:
@@ -169,6 +180,7 @@ const PHASES: PhaseDetail[] = [
         'Atomic database transactions storing parent documents and child extraction records.',
         'High-speed vectorization generating 768-dimensional dense vector embeddings per clause.',
         'pgvector cosine distance indexing (<=> operator) for high-accuracy semantic similarity matching.',
+        'Safe UUID validation and relational foreign-key integrity guards across all tables.',
       ],
       businessValue:
         'Enables sub-second semantic retrieval across thousands of technical clauses while maintaining complete corporate governance and auditability.',
@@ -177,47 +189,47 @@ const PHASES: PhaseDetail[] = [
   {
     id: 'phase-5',
     stepNumber: '05',
-    title: 'Retrieval, SME Governance & Project Scoping',
-    shortDesc: 'Confidence-gated SME review, semantic knowledge search, and automated RFP / SOW generation.',
+    title: '3-Step Project Scoping, RFP Wizard & Closed-Loop Governance',
+    shortDesc: 'Project configuration, AI specification matching, SME matrix validation, and Lessons Learned.',
     icon: Target,
     badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',
     accentBg: 'bg-amber-500/10',
     borderColor: 'border-amber-500/30',
-    modelOrTech: 'pgvector Semantic Search + Project Scoping Agent + Closed-Loop Feedback',
+    modelOrTech: '3-Step Scoping Wizard + pgvector Cosine Matcher + Closed-Loop Feedback Engine',
     inputs: [
-      'Natural language engineering queries',
-      'Capital project scope definitions (Facility type, operating conditions, narrative)',
-      'SME validation edits and approvals',
+      'Step 1: Capital Project parameters (Facility type, operating conditions, disciplines, scope narrative)',
+      'Step 2: Top-K specification match threshold & discipline filters',
+      'Step 3: SME validations, clause removals with audit reasons, and manual requirement additions',
     ],
     outputs: [
-      'Confidence-gated SME Review Queue (< 0.85 routed to discipline lead)',
-      'Hybrid semantic & discipline-filtered search results',
-      'Curated Vendor RFP / SOW Packages (Mandatory vs Recommendations vs Guidelines)',
-      'Closed-loop feedback logs & upstream standard revision flags',
+      'Step 1: Project Scope records & saved scope packages for re-editing/re-exporting',
+      'Step 2: AI-Matched RFP specifications with Stage 1-3 Token Usage Observability',
+      'Step 3: Curated RFP Packages (Mandatory vs Recommendations vs Guidelines) with 1-click Markdown/CSV export',
+      'Step 3: Lessons Learned audit records (feedback_lessons) & Master Standard Revision Flags (document_revision_flags)',
     ],
     deepDive: {
       overview:
-        'Stakeholders interact with the unified knowledge base through three primary channels: a confidence-gated SME review queue for low-confidence items, an instant semantic knowledge search, and an automated Project Scoping Agent that drafts comprehensive RFP packages for new capital projects.',
+        'Stakeholders utilize the end-to-end 3-step Project Scoping Wizard to build verified RFP packages. Project parameters are matched against vectorized engineering standards, evaluated by Gemini Pro, and presented in an interactive matrix. When an SME removes or adds a clause, an audit reason is logged to Lessons Learned and upstream standard revision flags are created.',
       keyMechanisms: [
-        'Confidence threshold gating (< 0.85) automatically assigning ambiguous items to SME review.',
-        'Semantic search computing 1 - (embedding <=> queryVector) with discipline metadata filters.',
-        'Project Scoping Agent compiling mandatory requirements, recommendations, and guidelines with 1-click Markdown and CSV export.',
-        'Closed-loop feedback capturing SME edits into feedback_lessons and flagging upstream standards for revision.',
+        'Step 1: Multi-project database management with draft/saved package status filtering and sample seeding.',
+        'Step 2: Multi-stage Gemini evaluation pipeline matching specifications and reporting exact token consumption.',
+        'Step 3: SME interactive validation matrix with 1-click Markdown/CSV export and persistent database save.',
+        'Closed-Loop Governance: Reason-logged requirement removals and semantic knowledge search additions recorded to feedback_lessons.',
       ],
       businessValue:
-        'Reduces capital project RFP creation time by 90% while guaranteeing that corporate engineering standards and safety mandates are never omitted.',
+        'Reduces capital project RFP creation time by 90% while guaranteeing that corporate engineering standards, safety mandates, and Lessons Learned are systematically applied.',
     },
   },
 ];
 
 export default function AboutCDDE() {
   const [activePhase, setActivePhase] = useState<string>('phase-1');
-  const [activeTab, setActiveTab] = useState<'architecture' | 'ai-matrix' | 'schema' | 'roi'>('architecture');
+  const [activeTab, setActiveTab] = useState<'architecture' | 'ai-matrix' | 'modules' | 'schema' | 'roi'>('architecture');
 
   const selectedPhase = PHASES.find((p) => p.id === activePhase) || PHASES[0];
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
+    <div className="p-6 md:p-8 max-w-7xl mx-auto space-y-8">
       {/* Header & Hero */}
       <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-brand-950 text-white p-8 rounded-2xl shadow-xl border border-slate-700/60 relative overflow-hidden">
         <div className="absolute top-0 right-0 -mr-16 -mt-16 w-96 h-96 bg-brand-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -247,7 +259,7 @@ export default function AboutCDDE() {
           <div className="flex flex-wrap items-center gap-2 pt-2 text-xs">
             <span className="px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-700 text-slate-200 flex items-center gap-1.5 font-medium">
               <Sparkles className="w-3.5 h-3.5 text-brand-400" />
-              Gemini 3.7 Flash + Thinking
+              Gemini 3.7 Flash + Thinking Budget
             </span>
             <span className="px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-700 text-slate-200 flex items-center gap-1.5 font-medium">
               <Database className="w-3.5 h-3.5 text-blue-400" />
@@ -259,9 +271,28 @@ export default function AboutCDDE() {
             </span>
             <span className="px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-700 text-slate-200 flex items-center gap-1.5 font-medium">
               <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
-              Closed-Loop Feedback & Revision Flags
+              Closed-Loop Lessons Learned & Flags
+            </span>
+            <span className="px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-700 text-slate-200 flex items-center gap-1.5 font-medium">
+              <Activity className="w-3.5 h-3.5 text-sky-400" />
+              Token Usage Observability
             </span>
           </div>
+        </div>
+      </div>
+
+      {/* Prototype Notice Banner */}
+      <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3.5 shadow-sm text-amber-950">
+        <div className="p-2 bg-amber-200/80 rounded-lg text-amber-800 shrink-0 mt-0.5">
+          <AlertTriangle className="w-5 h-5" />
+        </div>
+        <div className="space-y-1 text-sm">
+          <p className="font-bold uppercase tracking-wider text-xs text-amber-900">
+            Important Notice
+          </p>
+          <p className="font-medium text-amber-900 leading-relaxed">
+            This is a prototype system that is meant for demonstration purposes only. Only use supplied test documents. <span className="font-bold text-rose-700">DO NOT upload corporate confidential information!</span>
+          </p>
         </div>
       </div>
 
@@ -269,29 +300,40 @@ export default function AboutCDDE() {
       <div className="flex border-b border-slate-200 gap-2 overflow-x-auto pb-1">
         <button
           onClick={() => setActiveTab('architecture')}
-          className={`px-4 py-2.5 font-semibold text-sm rounded-t-lg transition-all flex items-center gap-2 shrink-0 ${
+          className={`px-4 py-2.5 font-semibold text-sm rounded-t-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'architecture'
               ? 'bg-white border-t-2 border-brand-600 text-brand-600 border-x border-slate-200 shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <Workflow className="w-4 h-4" />
-          End-to-End Data Flow & Pipeline
+          End-to-End Data Flow
         </button>
         <button
           onClick={() => setActiveTab('ai-matrix')}
-          className={`px-4 py-2.5 font-semibold text-sm rounded-t-lg transition-all flex items-center gap-2 shrink-0 ${
+          className={`px-4 py-2.5 font-semibold text-sm rounded-t-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'ai-matrix'
               ? 'bg-white border-t-2 border-brand-600 text-brand-600 border-x border-slate-200 shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
           <Cpu className="w-4 h-4" />
-          AI Model & Pipeline Matrix
+          AI Models & Token Observability
+        </button>
+        <button
+          onClick={() => setActiveTab('modules')}
+          className={`px-4 py-2.5 font-semibold text-sm rounded-t-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
+            activeTab === 'modules'
+              ? 'bg-white border-t-2 border-brand-600 text-brand-600 border-x border-slate-200 shadow-sm'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          Application Page Map
         </button>
         <button
           onClick={() => setActiveTab('schema')}
-          className={`px-4 py-2.5 font-semibold text-sm rounded-t-lg transition-all flex items-center gap-2 shrink-0 ${
+          className={`px-4 py-2.5 font-semibold text-sm rounded-t-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'schema'
               ? 'bg-white border-t-2 border-brand-600 text-brand-600 border-x border-slate-200 shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -302,7 +344,7 @@ export default function AboutCDDE() {
         </button>
         <button
           onClick={() => setActiveTab('roi')}
-          className={`px-4 py-2.5 font-semibold text-sm rounded-t-lg transition-all flex items-center gap-2 shrink-0 ${
+          className={`px-4 py-2.5 font-semibold text-sm rounded-t-lg transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
             activeTab === 'roi'
               ? 'bg-white border-t-2 border-brand-600 text-brand-600 border-x border-slate-200 shadow-sm'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -329,20 +371,20 @@ export default function AboutCDDE() {
                 </p>
               </div>
               <span className="text-xs font-semibold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full shrink-0">
-                Interactive Diagram
+                Interactive Architecture
               </span>
             </div>
 
             {/* Visual Flow Stages */}
             <div className="grid grid-cols-1 md:grid-cols-5 gap-3 relative">
-              {PHASES.map((phase, idx) => {
+              {PHASES.map((phase) => {
                 const Icon = phase.icon;
                 const isSelected = activePhase === phase.id;
                 return (
                   <button
                     key={phase.id}
                     onClick={() => setActivePhase(phase.id)}
-                    className={`relative text-left p-4 rounded-xl border transition-all flex flex-col justify-between ${
+                    className={`relative text-left p-4 rounded-xl border transition-all flex flex-col justify-between cursor-pointer ${
                       isSelected
                         ? 'bg-brand-50/70 border-brand-500 shadow-md ring-2 ring-brand-500/20'
                         : 'bg-slate-50/70 border-slate-200 hover:border-slate-300 hover:bg-slate-100/70'
@@ -472,11 +514,11 @@ export default function AboutCDDE() {
           <div>
             <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <Cpu className="w-5 h-5 text-purple-600" />
-              Multi-Stage AI Model Architecture
+              Multi-Stage AI Model Architecture & Observability
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              CDDE leverages specialized Gemini models for each distinct phase of document processing to maximize
-              accuracy, throughput, and reasoning depth.
+              CDDE leverages specialized Gemini models for each distinct phase of document extraction and project scoping,
+              providing full token transparency across prompt, output, and thought tokens.
             </p>
           </div>
 
@@ -487,8 +529,8 @@ export default function AboutCDDE() {
                   <th className="p-3.5">Pipeline Stage</th>
                   <th className="p-3.5">Assigned Model</th>
                   <th className="p-3.5">Key Capability & Role</th>
-                  <th className="p-3.5">Configuration</th>
-                  <th className="p-3.5">Fallback Strategy</th>
+                  <th className="p-3.5">Configuration & Thinking</th>
+                  <th className="p-3.5">Fallback Cascade</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-slate-700">
@@ -502,19 +544,19 @@ export default function AboutCDDE() {
                     </span>
                   </td>
                   <td className="p-3.5">
-                    Scans full document context to identify engineering section boundaries, preserving clause numbers.
+                    Scans full document context to identify engineering section boundaries and preserve clause numbers.
                   </td>
                   <td className="p-3.5 font-mono text-[11px]">
-                    temp: 0.1, responseMimeType: application/json, Structured Sections Schema
+                    temp: 0.1, responseMimeType: application/json, Sections Schema
                   </td>
                   <td className="p-3.5 text-slate-500">
-                    Deterministic paragraph/header chunker (target 7,000 chars)
+                    Deterministic section header chunker (15k char threshold)
                   </td>
                 </tr>
 
                 <tr className="hover:bg-slate-50">
                   <td className="p-3.5 font-bold text-slate-900">
-                    Stage 2: Parallel Deep Extraction & Confidence Scoring
+                    Stage 2: Parallel Deep Extraction & Confidence
                   </td>
                   <td className="p-3.5">
                     <span className="font-mono bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-semibold">
@@ -522,35 +564,33 @@ export default function AboutCDDE() {
                     </span>
                   </td>
                   <td className="p-3.5">
-                    Performs granular clause extraction, compliance level tagging (shall/should/may), discipline
-                    routing, and confidence scoring with reasoning.
+                    Extracts shall/should/may clauses, classifies across 10 disciplines, estimates CapEx, and assigns confidence reasoning.
                   </td>
                   <td className="p-3.5 font-mono text-[11px]">
-                    thinkingBudget: 1024, temp: 0.1, Structured Extraction Schema
+                    thinkingBudget: 1024, temp: 0.1, Extraction Schema
                   </td>
                   <td className="p-3.5 text-slate-500">
-                    Cascading fallback to Gemini 3.7 Flash &rarr; 3.6 Flash &rarr; 3.5 Flash &rarr; 2.5 Flash
+                    Gemini 3.7 Flash &rarr; 3.6 Flash &rarr; 3.5 Flash &rarr; 2.5 Flash
                   </td>
                 </tr>
 
                 <tr className="hover:bg-slate-50">
                   <td className="p-3.5 font-bold text-slate-900">
-                    Stage 3: Executive Synthesis & Cross-Discipline Review
+                    Stage 3: Executive Synthesis & Scope Review
                   </td>
                   <td className="p-3.5">
                     <span className="font-mono bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-semibold">
-                      Gemini 2.5 Pro
+                      Gemini 2.5 Pro / 3.7 Flash
                     </span>
                   </td>
                   <td className="p-3.5">
-                    Synthesizes overall document scope, detects cross-discipline discrepancies (e.g. electrical vs
-                    mechanical loads), and generates unique requirement codes.
+                    Synthesizes executive RFP scope summaries, detects cross-discipline discrepancies, and assigns 8-digit tracking codes.
                   </td>
                   <td className="p-3.5 font-mono text-[11px]">
                     temp: 0.1, responseMimeType: application/json, Synthesis Schema
                   </td>
                   <td className="p-3.5 text-slate-500">
-                    Fallback to Gemini 2.5 Pro &rarr; 3.1 Pro &rarr; 3.7 Flash &rarr; 3.6 Flash
+                    Gemini 2.5 Pro &rarr; 3.7 Flash &rarr; 3.6 Flash
                   </td>
                 </tr>
 
@@ -564,21 +604,192 @@ export default function AboutCDDE() {
                     </span>
                   </td>
                   <td className="p-3.5">
-                    Transforms extracted requirement text into 768-dimensional dense vector embeddings for cosine
-                    similarity search in pgvector.
+                    Transforms extracted requirement text into 768-dimensional dense vector embeddings for cosine distance matching in pgvector.
                   </td>
                   <td className="p-3.5 font-mono text-[11px]">768 dimensions, dense vector</td>
                   <td className="p-3.5 text-slate-500">
-                    Fallback to embedding-001 &rarr; Full-text SQL ILIKE search
+                    embedding-001 &rarr; Full-text SQL ILIKE search
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
+
+          {/* Token Observability Highlight Box */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-emerald-600" />
+              Token Usage & LLM Cost Observability
+            </h3>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Every extraction batch and project scoping matching run collects granular telemetry:
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs">
+              <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                <span className="font-bold text-slate-500 uppercase text-[10px] block">Prompt Tokens</span>
+                <span className="font-semibold text-slate-900">Input specification tokens</span>
+              </div>
+              <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                <span className="font-bold text-purple-600 uppercase text-[10px] block">Thought Tokens</span>
+                <span className="font-semibold text-purple-900">Gemini 3.7 reasoning tokens</span>
+              </div>
+              <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                <span className="font-bold text-emerald-600 uppercase text-[10px] block">Candidate Tokens</span>
+                <span className="font-semibold text-emerald-900">Structured JSON output</span>
+              </div>
+              <div className="p-2.5 bg-white rounded-lg border border-slate-200">
+                <span className="font-bold text-brand-600 uppercase text-[10px] block">Total Tokens</span>
+                <span className="font-semibold text-brand-900">Full Pipeline Footprint</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Tab 3: Database & Vector Schema */}
+      {/* Tab 3: Application Page Map & Feature Modules */}
+      {activeTab === 'modules' && (
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+              <Layers className="w-5 h-5 text-brand-600" />
+              Application Modules & Page Map
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+              Comprehensive navigation and capability guide across all active modules in the Capital Engineering Copilot.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+            {/* Module: Dashboard */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <Activity className="w-4 h-4 text-brand-600" />
+                <span>Executive Dashboard</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                High-level KPI metrics across total ingested standards, extracted clauses, review queues, and project scopes.
+              </p>
+              <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                Route: <span className="text-brand-600">/</span>
+              </div>
+            </div>
+
+            {/* Module: Document Ingestion */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <FileText className="w-4 h-4 text-sky-600" />
+                <span>Document Ingestion & Streaming</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                Drag-and-drop parsing of PDF, Word, Excel, and Text files with real-time Server-Sent Events (SSE) progress tracking.
+              </p>
+              <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                Route: <span className="text-brand-600">/ingest</span>
+              </div>
+            </div>
+
+            {/* Module: Document Repository */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <FileSearch className="w-4 h-4 text-indigo-600" />
+                <span>Document Search & Repository</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                Search and explore cataloged documents, filter by owner and document type, and inspect all extracted clauses per standard.
+              </p>
+              <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                Route: <span className="text-brand-600">/documents</span>
+              </div>
+            </div>
+
+            {/* Module: SME Review Queue */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>SME Review Queue</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                Confidence-gated triage workflow (&lt;0.85) allowing engineering discipline leads to approve, edit, or reject clauses.
+              </p>
+              <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                Route: <span className="text-brand-600">/review</span>
+              </div>
+            </div>
+
+            {/* Module: 3-Step Project Scoping */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <FolderKanban className="w-4 h-4 text-purple-600" />
+                <span>3-Step Project Scoping Wizard</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                1. Configure Projects &rarr; 2. Generate AI-Matched Specifications &rarr; 3. Validate RFP Matrices with Markdown & CSV export.
+              </p>
+              <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                Route: <span className="text-brand-600">/scoping</span>
+              </div>
+            </div>
+
+            {/* Module: Lessons Learned & Flags */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <RefreshCw className="w-4 h-4 text-amber-600" />
+                <span>Lessons Learned & Revision Flags</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                Closed-loop tracking of SME decisions, RFP item removals/additions, and upstream standard revision flags.
+              </p>
+              <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                Route: <span className="text-brand-600">/feedback</span>
+              </div>
+            </div>
+
+            {/* Module: Semantic Search */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <Search className="w-4 h-4 text-blue-600" />
+                <span>Semantic Knowledge Search</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                Sub-second natural language query search powered by pgvector 768-dim embeddings with discipline filtering.
+              </p>
+              <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                Route: <span className="text-brand-600">/search</span>
+              </div>
+            </div>
+
+            {/* Module: Database Administration */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <Database className="w-4 h-4 text-rose-600" />
+                <span>Database Administration</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                Inspect table record counts, purge test records by category, and trigger vector embedding re-indexing.
+              </p>
+              <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                Route: <span className="text-brand-600">/admin</span>
+              </div>
+            </div>
+
+            {/* Module: Architecture & About */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <HardHat className="w-4 h-4 text-emerald-600" />
+                <span>About CDDE Architecture</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                Interactive 5-phase data flow visualizer, model matrix, and database schema documentation.
+              </p>
+              <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                Route: <span className="text-brand-600">/about</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: Database & Vector Schema */}
       {activeTab === 'schema' && (
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
           <div>
@@ -624,9 +835,9 @@ export default function AboutCDDE() {
                 <div>id: uuid (PK)</div>
                 <div>document_id: uuid (FK &rarr; documents)</div>
                 <div>requirement_code: REQ-DISC-00000001</div>
-                <div>compliance_level: Mandatory/Recommended</div>
+                <div>compliance_level: Mandatory/Recommended/Guideline</div>
                 <div>confidence_score: doublePrecision (0.0-1.0)</div>
-                <div>status: Pending / Approved / Rejected</div>
+                <div>status: Pending Review / Approved / Rejected</div>
               </div>
             </div>
 
@@ -659,7 +870,7 @@ export default function AboutCDDE() {
                 <div>project_name: varchar(255)</div>
                 <div>facility_type: varchar(100)</div>
                 <div>scope_description: text</div>
-                <div>status: Draft / Approved</div>
+                <div>status: Configured / Draft / Approved</div>
               </div>
             </div>
 
@@ -673,8 +884,8 @@ export default function AboutCDDE() {
               </p>
               <div className="font-mono text-[10px] text-slate-500 bg-white p-2 rounded border border-slate-200 space-y-0.5">
                 <div>id: uuid (PK)</div>
-                <div>project_scope_id: uuid (FK)</div>
-                <div>extraction_id: uuid (FK)</div>
+                <div>project_scope_id: uuid (FK &rarr; project_scopes)</div>
+                <div>extraction_id: uuid (FK &rarr; extractions)</div>
                 <div>relevance_score: doublePrecision</div>
                 <div>is_selected: boolean</div>
               </div>
@@ -690,7 +901,7 @@ export default function AboutCDDE() {
               </p>
               <div className="font-mono text-[10px] text-slate-500 bg-white p-2 rounded border border-slate-200 space-y-0.5">
                 <div>id: uuid (PK)</div>
-                <div>document_id: uuid (FK)</div>
+                <div>document_id: uuid (FK &rarr; documents)</div>
                 <div>issue_description: text</div>
                 <div>suggested_action: varchar(255)</div>
                 <div>is_resolved: boolean</div>
@@ -700,7 +911,7 @@ export default function AboutCDDE() {
         </div>
       )}
 
-      {/* Tab 4: Business ROI & Governance */}
+      {/* Tab 5: Business ROI & Governance */}
       {activeTab === 'roi' && (
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
           <div>
