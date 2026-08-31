@@ -237,6 +237,27 @@ export const ExtractionItemSchema = z.object({
 });
 export type ExtractionItem = z.infer<typeof ExtractionItemSchema>;
 
+// Token Observability Schemas
+export const StageTokenUsageSchema = z.object({
+  promptTokens: z.number().default(0),
+  candidateTokens: z.number().default(0),
+  thoughtTokens: z.number().optional().default(0),
+  totalTokens: z.number().default(0),
+  model: z.string().optional(),
+});
+export type StageTokenUsage = z.infer<typeof StageTokenUsageSchema>;
+
+export const PipelineTokenUsageSchema = z.object({
+  stage1: StageTokenUsageSchema.optional(),
+  stage2: StageTokenUsageSchema.optional(),
+  stage3: StageTokenUsageSchema.optional(),
+  totalPromptTokens: z.number().default(0),
+  totalCandidateTokens: z.number().default(0),
+  totalThoughtTokens: z.number().default(0),
+  totalTokens: z.number().default(0),
+});
+export type PipelineTokenUsage = z.infer<typeof PipelineTokenUsageSchema>;
+
 // Extraction Batch Schema
 export const ExtractionBatchSchema = z.object({
   batch_id: z.string().uuid().optional(),
@@ -247,6 +268,7 @@ export const ExtractionBatchSchema = z.object({
   executive_summary: z.string().nullable().optional(),
   identified_disciplines: z.array(EngineeringDiscipline).default([]),
   items: z.array(ExtractionItemSchema).default([]),
+  token_usage: PipelineTokenUsageSchema.optional(),
 });
 export type ExtractionBatch = z.infer<typeof ExtractionBatchSchema>;
 
@@ -397,6 +419,7 @@ export const RFPPackageSchema = z.object({
   guidelines: z.array(ScopingRequirementItemSchema).default([]),
   created_at: z.string().optional(),
   generated_by: z.string().default('Capital Engineering Copilot Agent'),
+  token_usage: PipelineTokenUsageSchema.optional(),
 });
 export type RFPPackage = z.infer<typeof RFPPackageSchema>;
 
@@ -459,6 +482,8 @@ export const ExtractionProgressEventSchema = z.object({
     rawItemsCount: z.number().optional(),
     finalItemsCount: z.number().optional(),
     model: z.string().optional(),
+    stageTokens: StageTokenUsageSchema.optional(),
+    cumulativeTokens: PipelineTokenUsageSchema.optional(),
   }).optional(),
 });
 export type ExtractionProgressEvent = z.infer<typeof ExtractionProgressEventSchema>;

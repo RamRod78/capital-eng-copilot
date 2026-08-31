@@ -191,4 +191,45 @@ describe('Project Scoping & RFP Models', () => {
       'REQ-ELE-002',
     ]);
   });
+
+  it('validates RFPPackageSchema with token_usage observability metadata', () => {
+    const pkgWithTokens = {
+      package_id: '123e4567-e89b-12d3-a456-426614174000',
+      project_name: 'Gulf Coast NGL Fractionation Unit 3',
+      project_code: 'CAP-2026-NGL-03',
+      facility_type: 'NGL Fractionation & Gas Plant',
+      scope_summary: 'EPC scope for 150,000 BPD fractionation train with amine treaters.',
+      mandatory_requirements: [
+        {
+          scoping_item_id: '223e4567-e89b-12d3-a456-426614174001',
+          requirement_code: 'REQ-MEC-00000001',
+          requirement_text: 'Pressure vessels shall be designed in accordance with ASME Section VIII Div 1.',
+          item_type: 'Requirement',
+          engineering_discipline: 'Mechanical',
+          compliance_level: 'Mandatory',
+          relevance_score: 0.98,
+          is_selected: true,
+          custom_notes: 'Mandatory code compliance for 1480 psig design pressure.',
+        },
+      ],
+      recommendations: [],
+      guidelines: [],
+      token_usage: {
+        stage1: { promptTokens: 350, candidateTokens: 0, thoughtTokens: 0, totalTokens: 350, model: 'gemini-embedding-001' },
+        stage2: { promptTokens: 2400, candidateTokens: 850, thoughtTokens: 512, totalTokens: 3762, model: 'gemini-3.7-flash' },
+        stage3: { promptTokens: 1100, candidateTokens: 320, totalTokens: 1420, model: 'gemini-2.5-pro' },
+        totalPromptTokens: 3850,
+        totalCandidateTokens: 1170,
+        totalThoughtTokens: 512,
+        totalTokens: 5532,
+      },
+    };
+
+    const parsed = RFPPackageSchema.parse(pkgWithTokens);
+    expect(parsed.token_usage).toBeDefined();
+    expect(parsed.token_usage?.stage1?.totalTokens).toBe(350);
+    expect(parsed.token_usage?.stage2?.thoughtTokens).toBe(512);
+    expect(parsed.token_usage?.stage3?.candidateTokens).toBe(320);
+    expect(parsed.token_usage?.totalTokens).toBe(5532);
+  });
 });

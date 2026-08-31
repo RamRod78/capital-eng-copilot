@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { db, pool } from '../db/index.js';
 import { projectScopes, scopingItems } from '../db/schema.js';
-import { getEmbedding } from '../services/gemini.js';
+import { getEmbedding, getEmbeddingWithUsage, matchAndEvaluateScopeRequirements } from '../services/gemini.js';
 import { randomUUID } from 'crypto';
 import { eq, desc } from 'drizzle-orm';
 import { sortRequirementItems } from '../../shared/schemas.js';
@@ -261,7 +261,7 @@ scopingRouter.post('/match', async (c) => {
     const { project_id, project_name, project_code, facility_type, operating_conditions, disciplines, scope_description, top_k } = scopeInput;
 
     const queryText = `${facility_type} ${scope_description} ${operating_conditions || ''}`;
-    const queryVector = await getEmbedding(queryText);
+    const { embedding: queryVector, tokenUsage: embeddingUsage } = await getEmbeddingWithUsage(queryText);
     const limit = top_k || 15;
 
     const client = await pool.connect();
@@ -310,52 +310,22 @@ scopingRouter.post('/match', async (c) => {
       client.release();
     }
 
-    // Partition results into Mandatory, Recommendations, Guidelines
-    const seenTexts = new Set<string>();
-    const mandatory: any[] = [];
-    const recommendations: any[] = [];
-    const guidelines: any[] = [];
+    const rfpPkg = await matchAndEvaluateScopeRequirements(
+      {
+        project_id,
+        project_name,
+        project_code,
+        facility_type,
+        operating_conditions,
+        disciplines,
+        scope_description,
+        top_k: limit,
+      },
+      rows,
+      embeddingUsage
+    );
 
-    for (const r of rows) {
-      const normalized = r.requirement_text.trim().toLowerCase();
-      if (seenTexts.has(normalized)) continue;
-      seenTexts.add(normalized);
-
-      const item = {
-        scoping_item_id: randomUUID(),
-        extraction_id: r.id,
-        requirement_code: r.requirement_code,
-        requirement_text: r.requirement_text,
-        item_type: r.item_type || 'Requirement',
-        engineering_discipline: r.engineering_discipline,
-        compliance_level: r.compliance_level || 'Mandatory',
-        relevance_score: Number(r.similarity || 1.0),
-        is_selected: true,
-        custom_notes: '',
-      };
-
-      if (item.item_type === 'Requirement' || item.compliance_level === 'Mandatory') {
-        mandatory.push(item);
-      } else if (item.item_type === 'Recommendation' || item.compliance_level === 'Recommended') {
-        recommendations.push(item);
-      } else {
-        guidelines.push(item);
-      }
-    }
-
-    const packageId = project_id || randomUUID();
-    return c.json({
-      package_id: packageId,
-      project_name,
-      project_code,
-      facility_type,
-      scope_summary: scope_description,
-      mandatory_requirements: sortRequirementItems(mandatory),
-      recommendations: sortRequirementItems(recommendations),
-      guidelines: sortRequirementItems(guidelines),
-      created_at: new Date().toISOString(),
-      generated_by: 'Capital Engineering Copilot Agent',
-    });
+    return c.json(rfpPkg);
   } catch (err: any) {
     console.error('Error matching scope:', err);
     return c.json({ error: err.message }, 500);

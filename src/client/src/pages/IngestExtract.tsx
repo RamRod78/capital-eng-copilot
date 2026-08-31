@@ -15,9 +15,12 @@ import {
   ChevronUp,
   Terminal,
   ShieldCheck,
+  Zap,
+  Activity,
+  Layers,
 } from 'lucide-react';
 import { parseUploadedFile, extractRequirementsStream, saveExtractionBatch } from '../api/client.js';
-import { ExtractionBatch, ExtractionProgressEvent, ExtractionStageId } from '@shared/schemas';
+import { ExtractionBatch, ExtractionProgressEvent, ExtractionStageId, StageTokenUsage, PipelineTokenUsage } from '@shared/schemas';
 
 interface StageCardState {
   stageId: 1 | 2 | 3;
@@ -26,6 +29,7 @@ interface StageCardState {
   description: string;
   status: 'pending' | 'running' | 'completed' | 'error';
   statusMessage?: string;
+  tokenUsage?: StageTokenUsage;
   details?: {
     sectionsFound?: number;
     sectionTitles?: string[];
@@ -34,6 +38,8 @@ interface StageCardState {
     totalSections?: number;
     rawItemsCount?: number;
     finalItemsCount?: number;
+    stageTokens?: StageTokenUsage;
+    cumulativeTokens?: PipelineTokenUsage;
   };
 }
 
@@ -177,6 +183,7 @@ export default function IngestExtract() {
         rawContent: rawText,
         batchId: extractionResult?.batch_id,
         items: extractionResult?.items || [],
+        tokenUsage: extractionResult?.token_usage,
       }),
     onSuccess: (data) => {
       setSaveSuccess(`Successfully stored ${data.storedCount} requirements and embeddings in PostgreSQL!`);
@@ -222,6 +229,25 @@ export default function IngestExtract() {
       {} as NonNullable<ExtractionProgressEvent['details']>
     );
 
+    const latestEventWithCumulative = [...progressEvents].reverse().find((e) => e.details?.cumulativeTokens);
+    const cumulativeTokens: PipelineTokenUsage | undefined =
+      extractionResult?.token_usage || latestEventWithCumulative?.details?.cumulativeTokens;
+
+    const stage1Tokens =
+      stage1Details.stageTokens ||
+      cumulativeTokens?.stage1 ||
+      stage1Events.find((e) => e.details?.stageTokens)?.details?.stageTokens;
+
+    const stage2Tokens =
+      stage2Details.stageTokens ||
+      cumulativeTokens?.stage2 ||
+      [...stage2Events].reverse().find((e) => e.details?.stageTokens)?.details?.stageTokens;
+
+    const stage3Tokens =
+      stage3Details.stageTokens ||
+      cumulativeTokens?.stage3 ||
+      stage3Events.find((e) => e.details?.stageTokens)?.details?.stageTokens;
+
     return {
       stage1Events,
       stage2Events,
@@ -232,6 +258,10 @@ export default function IngestExtract() {
       stage1Details,
       stage2Details,
       stage3Details,
+      stage1Tokens,
+      stage2Tokens,
+      stage3Tokens,
+      cumulativeTokens,
     };
   };
 
@@ -274,6 +304,9 @@ export default function IngestExtract() {
       stage1Details,
       stage2Details,
       stage3Details,
+      stage1Tokens,
+      stage2Tokens,
+      stage3Tokens,
     } = getStageAggregates();
 
     const latestStage1 = stage1Events[stage1Events.length - 1];
@@ -288,6 +321,7 @@ export default function IngestExtract() {
         description: 'Scans layout, identifies engineering clauses & partitions logical sections.',
         status: stage1Completed ? 'completed' : currentStage === 1 ? 'running' : 'pending',
         statusMessage: latestStage1?.message || (stage1Completed ? 'ToC chunking complete.' : 'Awaiting document ingestion...'),
+        tokenUsage: stage1Tokens,
         details: Object.keys(stage1Details).length > 0 ? stage1Details : latestStage1?.details,
       },
       {
@@ -297,6 +331,7 @@ export default function IngestExtract() {
         description: 'Runs concurrent deep extraction with structured outputs and thinking process.',
         status: stage2Completed ? 'completed' : currentStage === 2 ? 'running' : 'pending',
         statusMessage: latestStage2?.message || (stage2Completed ? 'Deep extraction complete.' : 'Pending Stage 1 completion...'),
+        tokenUsage: stage2Tokens,
         details: Object.keys(stage2Details).length > 0 ? stage2Details : latestStage2?.details,
       },
       {
@@ -306,6 +341,7 @@ export default function IngestExtract() {
         description: 'De-duplicates clauses, analyzes cross-discipline conflicts & assigns sequence IDs.',
         status: stage3Completed ? 'completed' : currentStage === 3 ? 'running' : 'pending',
         statusMessage: latestStage3?.message || (stage3Completed ? 'Synthesis complete.' : 'Pending Stage 2 candidate items...'),
+        tokenUsage: stage3Tokens,
         details: Object.keys(stage3Details).length > 0 ? stage3Details : latestStage3?.details,
       },
     ];
@@ -313,6 +349,7 @@ export default function IngestExtract() {
 
   const stageCards = getStageCards();
   const overallProgress = calculateOverallProgress();
+  const { cumulativeTokens } = getStageAggregates();
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -700,10 +737,17 @@ export default function IngestExtract() {
                     </div>
 
                     {/* Model Badge */}
-                    <div className="flex items-center gap-1.5">
+                    {/* Model & Token Badge Row */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 text-brand-300 border border-slate-700">
                         {stage.model}
                       </span>
+                      {stage.tokenUsage && stage.tokenUsage.totalTokens > 0 && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800/80 flex items-center gap-1">
+                          <Zap className="w-2.5 h-2.5 text-amber-400" />
+                          {stage.tokenUsage.totalTokens.toLocaleString()} tokens
+                        </span>
+                      )}
                     </div>
 
                     {/* Description */}
@@ -711,7 +755,7 @@ export default function IngestExtract() {
                   </div>
 
                   {/* Stage-Specific Live Details */}
-                  <div className="pt-2 border-t border-slate-700/60 text-xs">
+                  <div className="pt-2 border-t border-slate-700/60 text-xs space-y-2">
                     {stage.stageId === 1 && stage.details?.sectionsFound ? (
                       <div className="space-y-1.5">
                         <span className="text-emerald-400 font-semibold flex items-center gap-1 text-[11px]">
@@ -779,11 +823,187 @@ export default function IngestExtract() {
                         {stage.statusMessage}
                       </p>
                     )}
+
+                    {/* Stage Token Detail Breakdown */}
+                    {stage.tokenUsage && stage.tokenUsage.totalTokens > 0 && (
+                      <div className="pt-1.5 border-t border-slate-800 flex justify-between items-center text-[10px] font-mono text-slate-400">
+                        <span>In: {stage.tokenUsage.promptTokens.toLocaleString()}</span>
+                        <span>Out: {stage.tokenUsage.candidateTokens.toLocaleString()}</span>
+                        {(stage.tokenUsage.thoughtTokens ?? 0) > 0 && (
+                          <span className="text-purple-300 font-medium">Think: {stage.tokenUsage.thoughtTokens?.toLocaleString()}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* Token Observability & Resource Analytics Widget */}
+          {cumulativeTokens && cumulativeTokens.totalTokens > 0 && (
+            <div className="bg-slate-950 rounded-xl border border-slate-800 p-5 space-y-4 shadow-inner">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                    <Activity className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                      Pipeline Token Observability & LLM Consumption
+                    </h3>
+                    <p className="text-[11px] text-slate-400">
+                      Real-time token metrics across extraction stages and cumulative consumption
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-mono font-bold flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-amber-400" />
+                    Total: {cumulativeTokens.totalTokens.toLocaleString()} Tokens
+                  </span>
+                </div>
+              </div>
+
+              {/* 4 Metric Breakdown Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Stage 1 Card */}
+                <div className="p-3.5 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-blue-400 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      Stage 1: ToC Chunking
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">Flash</span>
+                  </div>
+                  <div className="text-lg font-bold font-mono text-slate-100">
+                    {(cumulativeTokens.stage1?.totalTokens ?? 0).toLocaleString()}{' '}
+                    <span className="text-xs font-normal text-slate-400">tokens</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/80 pt-1">
+                    <span>Prompt: {(cumulativeTokens.stage1?.promptTokens ?? 0).toLocaleString()}</span>
+                    <span>Output: {(cumulativeTokens.stage1?.candidateTokens ?? 0).toLocaleString()}</span>
+                  </div>
+                </div>
+
+                {/* Stage 2 Card */}
+                <div className="p-3.5 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-purple-400 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                      Stage 2: Deep Extraction
+                    </span>
+                    <span className="text-[10px] font-mono text-purple-300">Thinking</span>
+                  </div>
+                  <div className="text-lg font-bold font-mono text-slate-100">
+                    {(cumulativeTokens.stage2?.totalTokens ?? 0).toLocaleString()}{' '}
+                    <span className="text-xs font-normal text-slate-400">tokens</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/80 pt-1">
+                    <span>In: {(cumulativeTokens.stage2?.promptTokens ?? 0).toLocaleString()}</span>
+                    <span>Out: {(cumulativeTokens.stage2?.candidateTokens ?? 0).toLocaleString()}</span>
+                    {(cumulativeTokens.stage2?.thoughtTokens ?? 0) > 0 && (
+                      <span className="text-purple-300 font-semibold">
+                        Think: {(cumulativeTokens.stage2?.thoughtTokens ?? 0).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Stage 3 Card */}
+                <div className="p-3.5 rounded-lg bg-slate-900/90 border border-slate-800 space-y-1.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      Stage 3: Synthesis
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">Pro</span>
+                  </div>
+                  <div className="text-lg font-bold font-mono text-slate-100">
+                    {(cumulativeTokens.stage3?.totalTokens ?? 0).toLocaleString()}{' '}
+                    <span className="text-xs font-normal text-slate-400">tokens</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/80 pt-1">
+                    <span>Prompt: {(cumulativeTokens.stage3?.promptTokens ?? 0).toLocaleString()}</span>
+                    <span>Output: {(cumulativeTokens.stage3?.candidateTokens ?? 0).toLocaleString()}</span>
+                  </div>
+                </div>
+
+                {/* Grand Total Card */}
+                <div className="p-3.5 rounded-lg bg-amber-950/40 border border-amber-800/50 space-y-1.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      Total Process Usage
+                    </span>
+                    <span className="text-[10px] font-bold text-amber-400">100%</span>
+                  </div>
+                  <div className="text-lg font-extrabold font-mono text-amber-200">
+                    {cumulativeTokens.totalTokens.toLocaleString()}{' '}
+                    <span className="text-xs font-normal text-amber-400">tokens</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] font-mono text-amber-300/80 border-t border-amber-800/60 pt-1">
+                    <span>In: {cumulativeTokens.totalPromptTokens.toLocaleString()}</span>
+                    <span>Out: {cumulativeTokens.totalCandidateTokens.toLocaleString()}</span>
+                    {cumulativeTokens.totalThoughtTokens > 0 && (
+                      <span className="text-purple-300 font-semibold">
+                        Think: {cumulativeTokens.totalThoughtTokens.toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Proportional Stage Breakdown Bar */}
+              {cumulativeTokens.totalTokens > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex justify-between text-[11px] font-mono text-slate-400">
+                    <span className="flex items-center gap-1.5">
+                      <Layers className="w-3 h-3 text-slate-400" />
+                      Stage Token Distribution:
+                    </span>
+                    <span>
+                      S1: {Math.round(((cumulativeTokens.stage1?.totalTokens ?? 0) / cumulativeTokens.totalTokens) * 100)}% · S2:{' '}
+                      {Math.round(((cumulativeTokens.stage2?.totalTokens ?? 0) / cumulativeTokens.totalTokens) * 100)}% · S3:{' '}
+                      {Math.round(((cumulativeTokens.stage3?.totalTokens ?? 0) / cumulativeTokens.totalTokens) * 100)}%
+                    </span>
+                  </div>
+                  <div className="w-full h-2.5 rounded-full bg-slate-900 overflow-hidden flex border border-slate-800">
+                    <div
+                      className="bg-blue-500 h-full transition-all duration-500"
+                      style={{
+                        width: `${Math.max(
+                          0,
+                          Math.min(100, Math.round(((cumulativeTokens.stage1?.totalTokens ?? 0) / cumulativeTokens.totalTokens) * 100))
+                        )}%`,
+                      }}
+                      title={`Stage 1: ${(cumulativeTokens.stage1?.totalTokens ?? 0).toLocaleString()} tokens`}
+                    />
+                    <div
+                      className="bg-purple-500 h-full transition-all duration-500"
+                      style={{
+                        width: `${Math.max(
+                          0,
+                          Math.min(100, Math.round(((cumulativeTokens.stage2?.totalTokens ?? 0) / cumulativeTokens.totalTokens) * 100))
+                        )}%`,
+                      }}
+                      title={`Stage 2: ${(cumulativeTokens.stage2?.totalTokens ?? 0).toLocaleString()} tokens`}
+                    />
+                    <div
+                      className="bg-emerald-500 h-full transition-all duration-500"
+                      style={{
+                        width: `${Math.max(
+                          0,
+                          Math.min(100, Math.round(((cumulativeTokens.stage3?.totalTokens ?? 0) / cumulativeTokens.totalTokens) * 100))
+                        )}%`,
+                      }}
+                      title={`Stage 3: ${(cumulativeTokens.stage3?.totalTokens ?? 0).toLocaleString()} tokens`}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Collapsible Live SSE Telemetry Log Feed */}
           <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
@@ -881,6 +1101,12 @@ export default function IngestExtract() {
                     Date: {extractionResult.document_date || docDate}
                   </span>
                 )}
+                {extractionResult.token_usage && extractionResult.token_usage.totalTokens > 0 && (
+                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 bg-amber-50 text-amber-800 rounded border border-amber-300 flex items-center gap-1">
+                    <Zap className="w-3 h-3 text-amber-600" />
+                    LLM Tokens: {extractionResult.token_usage.totalTokens.toLocaleString()}
+                  </span>
+                )}
               </div>
             </div>
             <button
@@ -907,6 +1133,34 @@ export default function IngestExtract() {
               )}
             </button>
           </div>
+
+          {/* Token Usage Summary Strip in Results */}
+          {extractionResult.token_usage && extractionResult.token_usage.totalTokens > 0 && (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs flex flex-wrap items-center justify-between gap-3 font-mono text-slate-700">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-brand-600" />
+                <span className="font-semibold text-slate-900">Extraction Token Telemetry:</span>
+                <span>
+                  Total <strong>{extractionResult.token_usage.totalTokens.toLocaleString()}</strong> tokens
+                </span>
+              </div>
+              <div className="flex items-center gap-3 text-[11px] text-slate-600 flex-wrap">
+                <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200">
+                  Stage 1 (ToC): {(extractionResult.token_usage.stage1?.totalTokens ?? 0).toLocaleString()}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200">
+                  Stage 2 (Extraction): {(extractionResult.token_usage.stage2?.totalTokens ?? 0).toLocaleString()}
+                </span>
+                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  Stage 3 (Synthesis): {(extractionResult.token_usage.stage3?.totalTokens ?? 0).toLocaleString()}
+                </span>
+                <span className="text-slate-500 font-sans">
+                  (Prompt: {extractionResult.token_usage.totalPromptTokens.toLocaleString()} · Output: {extractionResult.token_usage.totalCandidateTokens.toLocaleString()}
+                  {extractionResult.token_usage.totalThoughtTokens ? ` · Thinking: ${extractionResult.token_usage.totalThoughtTokens.toLocaleString()}` : ''})
+                </span>
+              </div>
+            </div>
+          )}
 
           {saveSuccess && (
             <div className="p-4 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-semibold">

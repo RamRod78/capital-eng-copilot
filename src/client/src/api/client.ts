@@ -151,6 +151,7 @@ export async function saveExtractionBatch(data: {
   rawContent: string;
   batchId?: string;
   items: any[];
+  tokenUsage?: any;
 }) {
   const res = await fetch(`${API_BASE}/ingest/save`, {
     method: 'POST',

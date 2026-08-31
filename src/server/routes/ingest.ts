@@ -140,7 +140,7 @@ ingestRouter.post('/extract-stream', async (c) => {
 // Save extraction batch and pgvector embeddings to database
 ingestRouter.post('/save', async (c) => {
   try {
-    const { documentTitle, documentNumber, documentDate, documentType, ownerSme, version, rawContent, batchId, items } = await c.req.json();
+    const { documentTitle, documentNumber, documentDate, documentType, ownerSme, version, rawContent, batchId, items, tokenUsage } = await c.req.json();
 
     // 1. Insert document record
     const [doc] = await db
@@ -156,6 +156,7 @@ ingestRouter.post('/save', async (c) => {
         metadata: {
           ...(documentNumber ? { documentNumber } : {}),
           ...(documentDate ? { documentDate } : {}),
+          ...(tokenUsage ? { tokenUsage } : {}),
         },
       })
       .returning();

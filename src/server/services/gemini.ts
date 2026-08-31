@@ -1,10 +1,17 @@
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import { randomUUID } from 'crypto';
 import {
   ExtractionBatch,
   ExtractionBatchSchema,
   assignUniqueRequirementCodes,
   ExtractionProgressEvent,
+  StageTokenUsage,
+  PipelineTokenUsage,
+  RFPPackage,
+  RFPPackageSchema,
+  ScopingRequirementItem,
+  sortRequirementItems,
   normalizeEngineeringDiscipline,
   normalizeItemType,
   normalizeComplianceLevel,
@@ -22,6 +29,22 @@ export const DEFAULT_STAGE3_MODEL = process.env.GEMINI_STAGE3_MODEL || 'gemini-2
 
 export function getGeminiClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey });
+}
+
+export function extractUsageMetadata(response: any, fallbackModel?: string): StageTokenUsage {
+  const meta = response?.usageMetadata;
+  const promptTokens = Number(meta?.promptTokenCount) || 0;
+  const candidateTokens = Number(meta?.candidatesTokenCount) || 0;
+  const thoughtTokens = Number(meta?.thoughtsTokenCount) || 0;
+  const totalTokens = Number(meta?.totalTokenCount) || (promptTokens + candidateTokens + thoughtTokens);
+
+  return {
+    promptTokens,
+    candidateTokens,
+    thoughtTokens,
+    totalTokens,
+    model: fallbackModel,
+  };
 }
 
 export const CAPITAL_ENG_SYSTEM_PROMPT = `
@@ -213,9 +236,12 @@ async function scanAndPartitionDocument(
   content: string,
   documentTitle: string,
   model = DEFAULT_STAGE1_MODEL
-): Promise<DocumentSection[]> {
+): Promise<{ sections: DocumentSection[]; tokenUsage: StageTokenUsage }> {
   if (content.length < 5000) {
-    return [{ section_title: documentTitle || 'General Scope', content: content.trim() }];
+    return {
+      sections: [{ section_title: documentTitle || 'General Scope', content: content.trim() }],
+      tokenUsage: { promptTokens: 0, candidateTokens: 0, thoughtTokens: 0, totalTokens: 0, model: 'Local Pass-through' },
+    };
   }
 
   const ai = getGeminiClient();
@@ -251,8 +277,9 @@ ${content.trim()}
 
       const parsed: DocumentSection[] = JSON.parse(response.text || '[]');
       if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(p => p.section_title && p.content)) {
-        console.log(`📑 Stage 1 complete: Document partitioned into ${parsed.length} logical sections with ${m}.`);
-        return parsed;
+        const usage = extractUsageMetadata(response, m);
+        console.log(`📑 Stage 1 complete: Document partitioned into ${parsed.length} logical sections with ${m} (${usage.totalTokens} tokens).`);
+        return { sections: parsed, tokenUsage: usage };
       }
     } catch (err: any) {
       console.warn(`Stage 1 Gemini ToC chunking with ${m} failed (${err.message}). Trying next fallback...`);
@@ -261,7 +288,10 @@ ${content.trim()}
 
   const chunks = deterministicChunker(content, documentTitle);
   console.log(`📑 Stage 1 complete: Document partitioned into ${chunks.length} sections via fallback chunker.`);
-  return chunks;
+  return {
+    sections: chunks,
+    tokenUsage: { promptTokens: 0, candidateTokens: 0, thoughtTokens: 0, totalTokens: 0, model: 'Deterministic Chunker' },
+  };
 }
 
 /**
@@ -272,7 +302,7 @@ async function extractSection(
   documentTitle: string,
   documentOwner: string,
   model = DEFAULT_STAGE2_MODEL
-): Promise<any[]> {
+): Promise<{ items: any[]; tokenUsage: StageTokenUsage }> {
   const ai = getGeminiClient();
   const prompt = `Analyze the following engineering section from "${documentTitle}" and extract all concrete technical requirements, recommendations, and guidelines.
 
@@ -314,9 +344,10 @@ ${section.content}
         config,
       });
 
+      const usage = extractUsageMetadata(response, m);
       const parsed = JSON.parse(response.text || '[]');
       if (Array.isArray(parsed)) {
-        return parsed.map((item) => ({
+        const items = parsed.map((item) => ({
           ...item,
           engineering_discipline: normalizeEngineeringDiscipline(item.engineering_discipline),
           item_type: normalizeItemType(item.item_type),
@@ -326,13 +357,14 @@ ${section.content}
           document_owner: item.document_owner || documentOwner,
           confidence_score: Math.max(0, Math.min(1, typeof item.confidence_score === 'number' && !isNaN(item.confidence_score) ? item.confidence_score : 0.95)),
         }));
+        return { items, tokenUsage: usage };
       }
     } catch (err: any) {
       console.warn(`Extraction for section "${section.section_title}" with ${m} failed: ${err.message}. Trying next fallback...`);
     }
   }
 
-  return [];
+  return { items: [], tokenUsage: { promptTokens: 0, candidateTokens: 0, thoughtTokens: 0, totalTokens: 0, model } };
 }
 
 /**
@@ -345,7 +377,7 @@ async function synthesizeAndDeduplicate(
   documentNumber?: string | null,
   model = DEFAULT_STAGE3_MODEL,
   startingSequences?: Record<string, number>
-): Promise<ExtractionBatch> {
+): Promise<{ batch: ExtractionBatch; tokenUsage: StageTokenUsage }> {
   // 1. In-memory de-duplication
   const seenTexts = new Set<string>();
   const uniqueItems: any[] = [];
@@ -393,6 +425,13 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
 
   let executiveSummary = `Extracted ${uniqueItems.length} technical requirements across ${disciplines.length} engineering disciplines for ${documentTitle}.`;
   let identifiedDisciplines = disciplines;
+  let stage3Usage: StageTokenUsage = {
+    promptTokens: 0,
+    candidateTokens: 0,
+    thoughtTokens: 0,
+    totalTokens: 0,
+    model,
+  };
 
   const modelsToTry = [
     model,
@@ -417,6 +456,7 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
         },
       });
 
+      stage3Usage = extractUsageMetadata(response, m);
       const parsed = JSON.parse(response.text || '{}');
       if (parsed.executive_summary) {
         executiveSummary = parsed.executive_summary;
@@ -456,7 +496,7 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
     items: formattedItems,
   };
 
-  return ExtractionBatchSchema.parse(batch);
+  return { batch: ExtractionBatchSchema.parse(batch), tokenUsage: stage3Usage };
 }
 
 /**
@@ -491,18 +531,28 @@ export async function extractRequirementsFromText(
     },
   });
 
-  const sections = await scanAndPartitionDocument(content, documentTitle, DEFAULT_STAGE1_MODEL);
+  const { sections, tokenUsage: stage1Usage } = await scanAndPartitionDocument(content, documentTitle, DEFAULT_STAGE1_MODEL);
+
+  const cumulativeAfterStage1: PipelineTokenUsage = {
+    stage1: stage1Usage,
+    totalPromptTokens: stage1Usage.promptTokens,
+    totalCandidateTokens: stage1Usage.candidateTokens,
+    totalThoughtTokens: stage1Usage.thoughtTokens || 0,
+    totalTokens: stage1Usage.totalTokens,
+  };
 
   await onProgress?.({
     stage: 1,
     stageName: 'Structure Chunking & ToC Analysis',
     status: 'completed',
-    message: `Partitioned into ${sections.length} logical engineering section(s).`,
+    message: `Partitioned into ${sections.length} logical engineering section(s). (Stage 1 Tokens: ${stage1Usage.totalTokens.toLocaleString()})`,
     timestamp: new Date().toISOString(),
     details: {
       sectionsFound: sections.length,
       sectionTitles: sections.map((s) => s.section_title),
-      model: 'Gemini 3.6 Flash',
+      model: stage1Usage.model || 'Gemini 3.6 Flash',
+      stageTokens: stage1Usage,
+      cumulativeTokens: cumulativeAfterStage1,
     },
   });
 
@@ -519,22 +569,48 @@ export async function extractRequirementsFromText(
       currentSectionIndex: 0,
       rawItemsCount: 0,
       model: 'Gemini 3.7 Flash (Thinking)',
+      cumulativeTokens: cumulativeAfterStage1,
     },
   });
 
   let completedSections = 0;
   let cumulativeRawItems = 0;
+  let stage2PromptTokens = 0;
+  let stage2CandidateTokens = 0;
+  let stage2ThoughtTokens = 0;
+  let stage2TotalTokens = 0;
 
   const sectionPromises = sections.map(async (section, idx) => {
-    const items = await extractSection(section, documentTitle, documentOwner, DEFAULT_STAGE2_MODEL);
+    const { items, tokenUsage: secUsage } = await extractSection(section, documentTitle, documentOwner, DEFAULT_STAGE2_MODEL);
     completedSections++;
     cumulativeRawItems += items.length;
+    stage2PromptTokens += secUsage.promptTokens;
+    stage2CandidateTokens += secUsage.candidateTokens;
+    stage2ThoughtTokens += secUsage.thoughtTokens || 0;
+    stage2TotalTokens += secUsage.totalTokens;
+
+    const currentStage2Usage: StageTokenUsage = {
+      promptTokens: stage2PromptTokens,
+      candidateTokens: stage2CandidateTokens,
+      thoughtTokens: stage2ThoughtTokens,
+      totalTokens: stage2TotalTokens,
+      model: secUsage.model || 'Gemini 3.7 Flash (Thinking)',
+    };
+
+    const runningCumulative: PipelineTokenUsage = {
+      stage1: stage1Usage,
+      stage2: currentStage2Usage,
+      totalPromptTokens: stage1Usage.promptTokens + stage2PromptTokens,
+      totalCandidateTokens: stage1Usage.candidateTokens + stage2CandidateTokens,
+      totalThoughtTokens: (stage1Usage.thoughtTokens || 0) + stage2ThoughtTokens,
+      totalTokens: stage1Usage.totalTokens + stage2TotalTokens,
+    };
 
     await onProgress?.({
       stage: 2,
       stageName: 'Parallel Deep Extraction',
       status: 'running',
-      message: `Extracted section ${completedSections}/${sections.length}: "${section.section_title}" (${items.length} items)`,
+      message: `Extracted section ${completedSections}/${sections.length}: "${section.section_title}" (${items.length} items · +${secUsage.totalTokens.toLocaleString()} tokens)`,
       timestamp: new Date().toISOString(),
       details: {
         currentSectionIndex: completedSections,
@@ -542,6 +618,8 @@ export async function extractRequirementsFromText(
         totalSections: sections.length,
         rawItemsCount: cumulativeRawItems,
         model: 'Gemini 3.7 Flash (Thinking)',
+        stageTokens: currentStage2Usage,
+        cumulativeTokens: runningCumulative,
       },
     });
 
@@ -550,19 +628,38 @@ export async function extractRequirementsFromText(
 
   const sectionResults = await Promise.all(sectionPromises);
   const rawItems = sectionResults.flat();
-  console.log(`📊 Stage 2 complete: Extracted ${rawItems.length} raw items across all sections.`);
+  console.log(`📊 Stage 2 complete: Extracted ${rawItems.length} raw items across all sections (${stage2TotalTokens} tokens).`);
+
+  const stage2FinalUsage: StageTokenUsage = {
+    promptTokens: stage2PromptTokens,
+    candidateTokens: stage2CandidateTokens,
+    thoughtTokens: stage2ThoughtTokens,
+    totalTokens: stage2TotalTokens,
+    model: 'Gemini 3.7 Flash (Thinking)',
+  };
+
+  const cumulativeAfterStage2: PipelineTokenUsage = {
+    stage1: stage1Usage,
+    stage2: stage2FinalUsage,
+    totalPromptTokens: stage1Usage.promptTokens + stage2PromptTokens,
+    totalCandidateTokens: stage1Usage.candidateTokens + stage2CandidateTokens,
+    totalThoughtTokens: (stage1Usage.thoughtTokens || 0) + stage2ThoughtTokens,
+    totalTokens: stage1Usage.totalTokens + stage2TotalTokens,
+  };
 
   await onProgress?.({
     stage: 2,
     stageName: 'Parallel Deep Extraction',
     status: 'completed',
-    message: `Stage 2 Complete: Extracted ${rawItems.length} raw candidate requirements across all ${sections.length} section(s).`,
+    message: `Stage 2 Complete: Extracted ${rawItems.length} raw candidate requirements across all ${sections.length} section(s). (Stage 2 Tokens: ${stage2TotalTokens.toLocaleString()})`,
     timestamp: new Date().toISOString(),
     details: {
       totalSections: sections.length,
       currentSectionIndex: sections.length,
       rawItemsCount: rawItems.length,
       model: 'Gemini 3.7 Flash (Thinking)',
+      stageTokens: stage2FinalUsage,
+      cumulativeTokens: cumulativeAfterStage2,
     },
   });
 
@@ -577,10 +674,11 @@ export async function extractRequirementsFromText(
     details: {
       rawItemsCount: rawItems.length,
       model: 'Gemini 2.5 Pro',
+      cumulativeTokens: cumulativeAfterStage2,
     },
   });
 
-  const finalBatch = await synthesizeAndDeduplicate(
+  const { batch: finalBatch, tokenUsage: stage3Usage } = await synthesizeAndDeduplicate(
     rawItems,
     documentTitle,
     documentOwner,
@@ -588,17 +686,31 @@ export async function extractRequirementsFromText(
     DEFAULT_STAGE3_MODEL,
     startingSequences
   );
-  console.log(`✅ 3-Stage Pipeline complete: ${finalBatch.items.length} verified requirements generated.`);
+
+  const totalPipelineUsage: PipelineTokenUsage = {
+    stage1: stage1Usage,
+    stage2: stage2FinalUsage,
+    stage3: stage3Usage,
+    totalPromptTokens: stage1Usage.promptTokens + stage2FinalUsage.promptTokens + stage3Usage.promptTokens,
+    totalCandidateTokens: stage1Usage.candidateTokens + stage2FinalUsage.candidateTokens + stage3Usage.candidateTokens,
+    totalThoughtTokens: (stage1Usage.thoughtTokens || 0) + (stage2FinalUsage.thoughtTokens || 0) + (stage3Usage.thoughtTokens || 0),
+    totalTokens: stage1Usage.totalTokens + stage2FinalUsage.totalTokens + stage3Usage.totalTokens,
+  };
+
+  finalBatch.token_usage = totalPipelineUsage;
+  console.log(`✅ 3-Stage Pipeline complete: ${finalBatch.items.length} verified requirements generated. Total tokens: ${totalPipelineUsage.totalTokens.toLocaleString()}`);
 
   await onProgress?.({
     stage: 3,
     stageName: 'Synthesis & De-duplication',
     status: 'completed',
-    message: `Stage 3 Complete: Synthesized ${finalBatch.items.length} verified requirements.`,
+    message: `Stage 3 Complete: Synthesized ${finalBatch.items.length} verified requirements. (Stage 3 Tokens: ${stage3Usage.totalTokens.toLocaleString()})`,
     timestamp: new Date().toISOString(),
     details: {
       finalItemsCount: finalBatch.items.length,
-      model: 'Gemini 2.5 Pro',
+      model: stage3Usage.model || 'Gemini 2.5 Pro',
+      stageTokens: stage3Usage,
+      cumulativeTokens: totalPipelineUsage,
     },
   });
 
@@ -606,10 +718,11 @@ export async function extractRequirementsFromText(
     stage: 'complete',
     stageName: 'Extraction Complete',
     status: 'completed',
-    message: `Extraction pipeline finished: ${finalBatch.items.length} requirements ready for review.`,
+    message: `Extraction pipeline finished: ${finalBatch.items.length} requirements ready for review. Total tokens: ${totalPipelineUsage.totalTokens.toLocaleString()} (Prompt: ${totalPipelineUsage.totalPromptTokens.toLocaleString()} · Output: ${totalPipelineUsage.totalCandidateTokens.toLocaleString()}${totalPipelineUsage.totalThoughtTokens ? ` · Thinking: ${totalPipelineUsage.totalThoughtTokens.toLocaleString()}` : ''}).`,
     timestamp: new Date().toISOString(),
     details: {
       finalItemsCount: finalBatch.items.length,
+      cumulativeTokens: totalPipelineUsage,
     },
   });
 
@@ -661,4 +774,294 @@ export async function getEmbedding(
 
   console.warn('Vector embedding unavailable across all candidate models. Falling back to text search.');
   return [];
+}
+
+export async function getEmbeddingWithUsage(
+  text: string,
+  model = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001'
+): Promise<{ embedding: number[]; tokenUsage: StageTokenUsage }> {
+  if (!text || !text.trim()) {
+    return {
+      embedding: [],
+      tokenUsage: { promptTokens: 0, candidateTokens: 0, thoughtTokens: 0, totalTokens: 0, model },
+    };
+  }
+
+  const estimatedPromptTokens = Math.max(1, Math.ceil(text.length / 4));
+  const vector = await getEmbedding(text, model);
+
+  return {
+    embedding: vector,
+    tokenUsage: {
+      promptTokens: estimatedPromptTokens,
+      candidateTokens: 0,
+      thoughtTokens: 0,
+      totalTokens: estimatedPromptTokens,
+      model: model || 'gemini-embedding-001',
+    },
+  };
+}
+
+const SCOPE_EVALUATION_RESPONSE_SCHEMA = {
+  type: 'ARRAY',
+  items: {
+    type: 'OBJECT',
+    properties: {
+      id: { type: 'STRING' },
+      compliance_level: {
+        type: 'STRING',
+        enum: ['Mandatory', 'Recommended', 'Optional', 'Informational'],
+      },
+      item_type: {
+        type: 'STRING',
+        enum: ['Requirement', 'Recommendation', 'Guideline'],
+      },
+      relevance_score: { type: 'NUMBER' },
+      custom_notes: { type: 'STRING' },
+    },
+    required: ['id', 'compliance_level', 'item_type', 'relevance_score'],
+  },
+};
+
+const SCOPE_SYNTHESIS_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    scope_summary: { type: 'STRING' },
+    high_risk_constraints: {
+      type: 'ARRAY',
+      items: { type: 'STRING' },
+    },
+  },
+  required: ['scope_summary'],
+};
+
+/**
+ * 3-Stage Project Requirement Matching Pipeline:
+ * Stage 1 (Vector Embedding & Candidate Retrieval): Vector embeddings
+ * Stage 2 (AI Scope Alignment & Clause Reasoning): Gemini 3.7 Flash (Thinking enabled)
+ * Stage 3 (RFP Scope Synthesis & Executive Summary): Gemini 2.5 Pro / Flash
+ */
+export async function matchAndEvaluateScopeRequirements(
+  project: {
+    project_id?: string;
+    project_name: string;
+    project_code?: string | null;
+    facility_type: string;
+    operating_conditions?: string | null;
+    disciplines?: string[];
+    scope_description: string;
+    top_k?: number;
+  },
+  candidateRows: any[],
+  stage1Usage: StageTokenUsage
+): Promise<RFPPackage> {
+  console.log(`🎯 Running AI Scope Requirement Matching for "${project.project_name}" across ${candidateRows.length} candidates...`);
+
+  // Default partition if LLM evaluation fails
+  let evaluatedMap = new Map<string, { compliance_level: string; item_type: string; relevance_score: number; custom_notes?: string }>();
+  let stage2Usage: StageTokenUsage = {
+    promptTokens: 0,
+    candidateTokens: 0,
+    thoughtTokens: 0,
+    totalTokens: 0,
+    model: DEFAULT_STAGE2_MODEL,
+  };
+
+  // Stage 2: AI Scope Alignment & Clause Reasoning (Gemini 3.7 Flash with Thinking)
+  if (candidateRows.length > 0) {
+    const ai = getGeminiClient();
+    const evalPrompt = `You are a Principal Capital Projects Technical Lead and EPC SME.
+Evaluate the following ${candidateRows.length} retrieved engineering candidate clauses for applicability against the specified project operating envelope.
+
+PROJECT SPECIFICATIONS:
+- Project Name: ${project.project_name} (${project.project_code || 'N/A'})
+- Facility Type: ${project.facility_type}
+- Operating Envelope & Conditions: ${project.operating_conditions || 'Standard'}
+- Active Disciplines: ${project.disciplines?.join(', ') || 'All'}
+- Detailed Scope of Work: ${project.scope_description}
+
+RETRIEVED CANDIDATE CLAUSES:
+${candidateRows.map((r, i) => `${i + 1}. [ID: ${r.id}] [Code: ${r.requirement_code || 'REQ'}] [Discipline: ${r.engineering_discipline}] [Default Compliance: ${r.compliance_level}]
+Text: ${r.requirement_text}
+Category: ${r.category || 'General'}
+`).join('\n')}
+
+For each clause:
+1. Determine whether it is 'Mandatory' (statutory or strictly applicable to this envelope), 'Recommended' (best practice / preferred option), or 'Guideline' (optional design margin).
+2. Assign 'item_type' ('Requirement', 'Recommendation', 'Guideline').
+3. Assign an applicability 'relevance_score' between 0.00 and 1.00.
+4. Provide concise engineering reasoning in 'custom_notes' explaining how it relates to project operating parameters (e.g. pressure, temperature, metallurgy, safety).
+`;
+
+    const modelsToTry = [
+      DEFAULT_STAGE2_MODEL,
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
+      'gemini-2.5-flash',
+    ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
+    for (const m of modelsToTry) {
+      try {
+        const config: any = {
+          systemInstruction: 'Evaluate candidate engineering specifications against project conditions and classify compliance tier and relevance score.',
+          responseMimeType: 'application/json',
+          responseSchema: SCOPE_EVALUATION_RESPONSE_SCHEMA,
+          temperature: 0.1,
+        };
+
+        if (m.includes('3.7') || m.includes('2.5') || m.includes('thinking')) {
+          config.thinkingConfig = { thinkingBudget: 1024 };
+        }
+
+        const response = await ai.models.generateContent({
+          model: m,
+          contents: evalPrompt,
+          config,
+        });
+
+        stage2Usage = extractUsageMetadata(response, m);
+        const parsed: any[] = JSON.parse(response.text || '[]');
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          for (const item of parsed) {
+            if (item.id) {
+              evaluatedMap.set(item.id, {
+                compliance_level: normalizeComplianceLevel(item.compliance_level),
+                item_type: normalizeItemType(item.item_type),
+                relevance_score: typeof item.relevance_score === 'number' ? Math.max(0, Math.min(1, item.relevance_score)) : 0.95,
+                custom_notes: item.custom_notes || '',
+              });
+            }
+          }
+          console.log(`✅ Stage 2 complete: Evaluated ${evaluatedMap.size} clauses with ${m} (${stage2Usage.totalTokens} tokens).`);
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Stage 2 Scope Clause Evaluation with ${m} failed: ${err.message}. Trying fallback...`);
+      }
+    }
+  }
+
+  // Partition items into Mandatory, Recommendations, Guidelines
+  const seenTexts = new Set<string>();
+  const mandatory: ScopingRequirementItem[] = [];
+  const recommendations: ScopingRequirementItem[] = [];
+  const guidelines: ScopingRequirementItem[] = [];
+
+  for (const r of candidateRows) {
+    const normalized = (r.requirement_text || '').trim().toLowerCase();
+    if (seenTexts.has(normalized)) continue;
+    seenTexts.add(normalized);
+
+    const evalData = evaluatedMap.get(r.id);
+    const itemType = evalData?.item_type || normalizeItemType(r.item_type || 'Requirement');
+    const complianceLevel = evalData?.compliance_level || normalizeComplianceLevel(r.compliance_level || 'Mandatory');
+    const relevanceScore = evalData?.relevance_score ?? Number(r.similarity || 1.0);
+    const customNotes = evalData?.custom_notes || '';
+
+    const item: ScopingRequirementItem = {
+      scoping_item_id: randomUUID(),
+      extraction_id: r.id,
+      requirement_code: r.requirement_code || null,
+      requirement_text: r.requirement_text,
+      item_type: itemType as any,
+      engineering_discipline: normalizeEngineeringDiscipline(r.engineering_discipline) as any,
+      compliance_level: complianceLevel as any,
+      relevance_score: relevanceScore,
+      is_selected: true,
+      custom_notes: customNotes || null,
+    };
+
+    if (item.item_type === 'Requirement' || item.compliance_level === 'Mandatory') {
+      mandatory.push(item);
+    } else if (item.item_type === 'Recommendation' || item.compliance_level === 'Recommended') {
+      recommendations.push(item);
+    } else {
+      guidelines.push(item);
+    }
+  }
+
+  // Stage 3: Scope Synthesis & Executive Summary (Gemini Pro / Flash)
+  let stage3Usage: StageTokenUsage = {
+    promptTokens: 0,
+    candidateTokens: 0,
+    thoughtTokens: 0,
+    totalTokens: 0,
+    model: DEFAULT_STAGE3_MODEL,
+  };
+  let scopeSummary = project.scope_description;
+
+  const totalMatchedCount = mandatory.length + recommendations.length + guidelines.length;
+  if (totalMatchedCount > 0) {
+    const ai = getGeminiClient();
+    const summaryPrompt = `You are a Senior Principal Project Engineer. Synthesize an executive RFP scope summary for project "${project.project_name}" (${project.facility_type}).
+Operating Conditions: ${project.operating_conditions || 'Standard'}
+Original Scope: ${project.scope_description}
+Matched Requirements: ${mandatory.length} Mandatory, ${recommendations.length} Recommendations, ${guidelines.length} Guidelines across ${(project.disciplines || []).join(', ')}.
+
+Provide a structured, executive scope summary highlighting key technical focus areas and major equipment constraints.`;
+
+    const modelsToTry = [
+      DEFAULT_STAGE3_MODEL,
+      'gemini-2.5-pro',
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
+    ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
+    for (const m of modelsToTry) {
+      try {
+        const response = await ai.models.generateContent({
+          model: m,
+          contents: summaryPrompt,
+          config: {
+            systemInstruction: 'Synthesize the project RFP scope summary and key technical constraints.',
+            responseMimeType: 'application/json',
+            responseSchema: SCOPE_SYNTHESIS_RESPONSE_SCHEMA,
+            temperature: 0.1,
+          },
+        });
+
+        stage3Usage = extractUsageMetadata(response, m);
+        const parsed = JSON.parse(response.text || '{}');
+        if (parsed.scope_summary) {
+          scopeSummary = parsed.scope_summary;
+          if (Array.isArray(parsed.high_risk_constraints) && parsed.high_risk_constraints.length > 0) {
+            scopeSummary += `\n\nKey Constraints:\n- ` + parsed.high_risk_constraints.join('\n- ');
+          }
+        }
+        console.log(`✅ Stage 3 complete: Synthesized scope summary with ${m} (${stage3Usage.totalTokens} tokens).`);
+        break;
+      } catch (err: any) {
+        console.warn(`Stage 3 Scope Synthesis with ${m} failed: ${err.message}.`);
+      }
+    }
+  }
+
+  // Grand Total Pipeline Usage Calculation
+  const totalPipelineUsage: PipelineTokenUsage = {
+    stage1: stage1Usage,
+    stage2: stage2Usage,
+    stage3: stage3Usage,
+    totalPromptTokens: stage1Usage.promptTokens + stage2Usage.promptTokens + stage3Usage.promptTokens,
+    totalCandidateTokens: stage1Usage.candidateTokens + stage2Usage.candidateTokens + stage3Usage.candidateTokens,
+    totalThoughtTokens: (stage1Usage.thoughtTokens || 0) + (stage2Usage.thoughtTokens || 0) + (stage3Usage.thoughtTokens || 0),
+    totalTokens: stage1Usage.totalTokens + stage2Usage.totalTokens + stage3Usage.totalTokens,
+  };
+
+  const packageId = project.project_id || randomUUID();
+  const pkg: RFPPackage = {
+    package_id: packageId,
+    project_name: project.project_name,
+    project_code: project.project_code || undefined,
+    facility_type: project.facility_type,
+    scope_summary: scopeSummary,
+    mandatory_requirements: sortRequirementItems(mandatory),
+    recommendations: sortRequirementItems(recommendations),
+    guidelines: sortRequirementItems(guidelines),
+    created_at: new Date().toISOString(),
+    generated_by: 'Capital Engineering Copilot Agent',
+    token_usage: totalPipelineUsage,
+  };
+
+  console.log(`✨ RFP Matching complete: Total tokens consumed: ${totalPipelineUsage.totalTokens.toLocaleString()}`);
+  return RFPPackageSchema.parse(pkg);
 }

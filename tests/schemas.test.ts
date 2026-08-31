@@ -10,6 +10,8 @@ import {
   DocumentRevisionFlagSchema,
   SearchResultSchema,
   ExtractionProgressEventSchema,
+  StageTokenUsageSchema,
+  PipelineTokenUsageSchema,
   getDisciplineCode,
   formatRequirementCode,
   parseRequirementCode,
@@ -322,7 +324,7 @@ describe('Zod Schema Validation', () => {
       expect(codeSet.size).toBe(allCodes.length);
     });
 
-    it('validates ExtractionProgressEventSchema across all stages', () => {
+    it('validates ExtractionProgressEventSchema across all stages with token metrics', () => {
       const event1 = {
         stage: 1 as const,
         stageName: 'Structure Chunking & ToC Analysis',
@@ -339,13 +341,35 @@ describe('Zod Schema Validation', () => {
         stage: 2 as const,
         stageName: 'Parallel Deep Extraction',
         status: 'completed' as const,
-        message: 'Stage 2 Complete: Extracted 24 raw candidate requirements.',
+        message: 'Stage 2 Complete: Extracted 24 raw candidate requirements. (Stage 2 Tokens: 8,450)',
         timestamp: new Date().toISOString(),
-        details: { totalSections: 3, rawItemsCount: 24, model: 'Gemini 3.7 Flash (Thinking)' },
+        details: {
+          totalSections: 3,
+          rawItemsCount: 24,
+          model: 'Gemini 3.7 Flash (Thinking)',
+          stageTokens: {
+            promptTokens: 5200,
+            candidateTokens: 2226,
+            thoughtTokens: 1024,
+            totalTokens: 8450,
+            model: 'gemini-3.7-flash',
+          },
+          cumulativeTokens: {
+            stage1: { promptTokens: 1200, candidateTokens: 250, totalTokens: 1450, model: 'gemini-3.6-flash' },
+            stage2: { promptTokens: 5200, candidateTokens: 2226, thoughtTokens: 1024, totalTokens: 8450, model: 'gemini-3.7-flash' },
+            totalPromptTokens: 6400,
+            totalCandidateTokens: 2476,
+            totalThoughtTokens: 1024,
+            totalTokens: 9900,
+          },
+        },
       };
       const parsed2 = ExtractionProgressEventSchema.parse(event2);
       expect(parsed2.stage).toBe(2);
       expect(parsed2.details?.rawItemsCount).toBe(24);
+      expect(parsed2.details?.stageTokens?.totalTokens).toBe(8450);
+      expect(parsed2.details?.stageTokens?.thoughtTokens).toBe(1024);
+      expect(parsed2.details?.cumulativeTokens?.totalTokens).toBe(9900);
 
       const eventComplete = {
         stage: 'complete' as const,
@@ -353,11 +377,84 @@ describe('Zod Schema Validation', () => {
         status: 'completed' as const,
         message: 'Pipeline finished: 18 requirements ready.',
         timestamp: new Date().toISOString(),
-        details: { finalItemsCount: 18 },
+        details: {
+          finalItemsCount: 18,
+          cumulativeTokens: {
+            totalPromptTokens: 8000,
+            totalCandidateTokens: 3000,
+            totalThoughtTokens: 1024,
+            totalTokens: 12024,
+          },
+        },
       };
       const parsedComplete = ExtractionProgressEventSchema.parse(eventComplete);
       expect(parsedComplete.stage).toBe('complete');
       expect(parsedComplete.details?.finalItemsCount).toBe(18);
+      expect(parsedComplete.details?.cumulativeTokens?.totalTokens).toBe(12024);
+    });
+
+    it('validates StageTokenUsageSchema and PipelineTokenUsageSchema correctly', () => {
+      const stageUsage = StageTokenUsageSchema.parse({
+        promptTokens: 1500,
+        candidateTokens: 450,
+        thoughtTokens: 256,
+        totalTokens: 2206,
+        model: 'gemini-3.7-flash',
+      });
+      expect(stageUsage.promptTokens).toBe(1500);
+      expect(stageUsage.candidateTokens).toBe(450);
+      expect(stageUsage.thoughtTokens).toBe(256);
+      expect(stageUsage.totalTokens).toBe(2206);
+      expect(stageUsage.model).toBe('gemini-3.7-flash');
+
+      const pipelineUsage = PipelineTokenUsageSchema.parse({
+        stage1: { promptTokens: 1000, candidateTokens: 200, totalTokens: 1200 },
+        stage2: { promptTokens: 4000, candidateTokens: 1500, thoughtTokens: 512, totalTokens: 6012 },
+        stage3: { promptTokens: 2000, candidateTokens: 600, totalTokens: 2600 },
+        totalPromptTokens: 7000,
+        totalCandidateTokens: 2300,
+        totalThoughtTokens: 512,
+        totalTokens: 9812,
+      });
+      expect(pipelineUsage.stage1?.totalTokens).toBe(1200);
+      expect(pipelineUsage.stage2?.thoughtTokens).toBe(512);
+      expect(pipelineUsage.stage3?.candidateTokens).toBe(600);
+      expect(pipelineUsage.totalTokens).toBe(9812);
+    });
+
+    it('validates ExtractionBatchSchema with token_usage metadata', () => {
+      const batchWithTokens = {
+        document_title: 'API 650 Welded Tanks for Oil Storage',
+        document_number: 'API-STD-650-ED13',
+        document_owner: 'Mechanical SME',
+        executive_summary: 'Comprehensive design and fabrication standard.',
+        identified_disciplines: ['Mechanical'],
+        items: [
+          {
+            requirement_code: 'REQ-MEC-00000001',
+            requirement_text: 'Tanks shall be designed for wind velocity specified in ASCE 7.',
+            item_type: 'Requirement',
+            engineering_discipline: 'Mechanical',
+            compliance_level: 'Mandatory',
+          },
+        ],
+        token_usage: {
+          stage1: { promptTokens: 1100, candidateTokens: 150, totalTokens: 1250, model: 'gemini-3.6-flash' },
+          stage2: { promptTokens: 3500, candidateTokens: 1200, thoughtTokens: 1024, totalTokens: 5724, model: 'gemini-3.7-flash' },
+          stage3: { promptTokens: 1800, candidateTokens: 450, totalTokens: 2250, model: 'gemini-2.5-pro' },
+          totalPromptTokens: 6400,
+          totalCandidateTokens: 1800,
+          totalThoughtTokens: 1024,
+          totalTokens: 9224,
+        },
+      };
+
+      const parsed = ExtractionBatchSchema.parse(batchWithTokens);
+      expect(parsed.token_usage).toBeDefined();
+      expect(parsed.token_usage?.stage1?.totalTokens).toBe(1250);
+      expect(parsed.token_usage?.stage2?.thoughtTokens).toBe(1024);
+      expect(parsed.token_usage?.stage3?.model).toBe('gemini-2.5-pro');
+      expect(parsed.token_usage?.totalTokens).toBe(9224);
     });
   });
 });

@@ -24,6 +24,9 @@ import {
   Check,
   Lightbulb,
   Layers,
+  Zap,
+  Activity,
+  Cpu,
 } from 'lucide-react';
 import {
   fetchProjects,
@@ -1226,12 +1229,21 @@ export default function ProjectScoping() {
                 <div className="bg-brand-50 border border-brand-200 p-5 rounded-2xl space-y-3 animate-pulse">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-brand-800 flex items-center gap-2">
                     <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
-                    Agent Reasoning In Progress
+                    3-Stage AI Scope Matching In Progress
                   </h4>
                   <div className="text-xs text-brand-900 space-y-1.5 font-mono">
-                    <div>1. Generating text embeddings (Gemini embedding-001)...</div>
-                    <div>2. Executing HNSW cosine distance vector retrieval...</div>
-                    <div>3. Partitioning compliance tiers according to ASME/API clauses...</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                      <span>Stage 1: Generating 768-dim embeddings & pgvector search...</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
+                      <span>Stage 2: Gemini 3.7 Flash Thinking reasoning on operating conditions...</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      <span>Stage 3: Gemini 2.5 Pro RFP scope package synthesis...</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1249,12 +1261,18 @@ export default function ProjectScoping() {
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 pb-4">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     Step 3: Validation & Curation
                   </span>
                   <span className="text-xs text-slate-400">•</span>
                   <span className="text-xs font-semibold text-slate-600">{rfpPackage.facility_type}</span>
+                  {rfpPackage.token_usage && rfpPackage.token_usage.totalTokens > 0 && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-amber-600" />
+                      LLM Matching Tokens: {rfpPackage.token_usage.totalTokens.toLocaleString()}
+                    </span>
+                  )}
                 </div>
                 <h2 className="text-2xl font-extrabold text-slate-900 mt-1 flex items-center gap-2">
                   {rfpPackage.project_name}
@@ -1336,6 +1354,144 @@ export default function ProjectScoping() {
               </div>
             </div>
           </div>
+
+          {/* AI Requirement Matching Token Observability & LLM Consumption Widget */}
+          {rfpPackage.token_usage && rfpPackage.token_usage.totalTokens > 0 && (
+            <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 shadow-md space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-brand-400" />
+                  <h3 className="font-bold text-sm text-slate-100">
+                    AI Scope Matching Token Observability & LLM Consumption
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+                  <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                    Total Process: <strong className="text-brand-300">{rfpPackage.token_usage.totalTokens.toLocaleString()}</strong> tokens
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-sans">
+                    (In: {rfpPackage.token_usage.totalPromptTokens.toLocaleString()} · Out: {rfpPackage.token_usage.totalCandidateTokens.toLocaleString()}
+                    {rfpPackage.token_usage.totalThoughtTokens ? ` · Thinking: ${rfpPackage.token_usage.totalThoughtTokens.toLocaleString()}` : ''})
+                  </span>
+                </div>
+              </div>
+
+              {/* 4 Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {/* Stage 1: Vector Retrieval */}
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-blue-900/40 space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-blue-400">Stage 1: Vector Retrieval</span>
+                    <span className="font-mono font-bold text-blue-300">
+                      {(rfpPackage.token_usage.stage1?.totalTokens ?? 0).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono">
+                    Model: {rfpPackage.token_usage.stage1?.model || 'gemini-embedding-001'}
+                  </div>
+                  <div className="text-[10px] text-slate-500">
+                    Embeddings & pgvector retrieval
+                  </div>
+                </div>
+
+                {/* Stage 2: AI Scope Alignment */}
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-purple-900/40 space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-purple-400">Stage 2: AI Clause Reasoning</span>
+                    <span className="font-mono font-bold text-purple-300">
+                      {(rfpPackage.token_usage.stage2?.totalTokens ?? 0).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono">
+                    Model: {rfpPackage.token_usage.stage2?.model || 'Gemini 3.7 Flash Thinking'}
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono">
+                    In: {(rfpPackage.token_usage.stage2?.promptTokens ?? 0).toLocaleString()} · Out: {(rfpPackage.token_usage.stage2?.candidateTokens ?? 0).toLocaleString()}
+                    {rfpPackage.token_usage.stage2?.thoughtTokens ? ` · Think: ${rfpPackage.token_usage.stage2.thoughtTokens.toLocaleString()}` : ''}
+                  </div>
+                </div>
+
+                {/* Stage 3: Scope Synthesis */}
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-emerald-900/40 space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-emerald-400">Stage 3: RFP Synthesis</span>
+                    <span className="font-mono font-bold text-emerald-300">
+                      {(rfpPackage.token_usage.stage3?.totalTokens ?? 0).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono">
+                    Model: {rfpPackage.token_usage.stage3?.model || 'Gemini 2.5 Pro'}
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-mono">
+                    In: {(rfpPackage.token_usage.stage3?.promptTokens ?? 0).toLocaleString()} · Out: {(rfpPackage.token_usage.stage3?.candidateTokens ?? 0).toLocaleString()}
+                  </div>
+                </div>
+
+                {/* Total Matching Usage */}
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-amber-900/40 space-y-1">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-amber-400">Total Matching Usage</span>
+                    <span className="font-mono font-bold text-amber-300">
+                      {rfpPackage.token_usage.totalTokens.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-mono">
+                    Input: {rfpPackage.token_usage.totalPromptTokens.toLocaleString()} · Output: {rfpPackage.token_usage.totalCandidateTokens.toLocaleString()}
+                  </div>
+                  <div className="text-[10px] text-amber-500/80 font-mono">
+                    {rfpPackage.token_usage.totalThoughtTokens ? `Thinking Tokens: ${rfpPackage.token_usage.totalThoughtTokens.toLocaleString()}` : 'Standard Generation'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Proportional Stage Consumption Bar */}
+              <div className="space-y-1 pt-1">
+                <div className="flex items-center justify-between text-[10px] text-slate-400">
+                  <span className="flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-blue-500"></span>
+                    Stage 1 ({Math.round(((rfpPackage.token_usage.stage1?.totalTokens ?? 0) / rfpPackage.token_usage.totalTokens) * 100)}%)
+                    <span className="inline-block w-2 h-2 rounded-full bg-purple-500 ml-2"></span>
+                    Stage 2 ({Math.round(((rfpPackage.token_usage.stage2?.totalTokens ?? 0) / rfpPackage.token_usage.totalTokens) * 100)}%)
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 ml-2"></span>
+                    Stage 3 ({Math.round(((rfpPackage.token_usage.stage3?.totalTokens ?? 0) / rfpPackage.token_usage.totalTokens) * 100)}%)
+                  </span>
+                  <span>100% Process Budget</span>
+                </div>
+                <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden flex">
+                  <div
+                    className="bg-blue-500 h-full transition-all duration-500"
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Math.min(100, Math.round(((rfpPackage.token_usage.stage1?.totalTokens ?? 0) / rfpPackage.token_usage.totalTokens) * 100))
+                      )}%`,
+                    }}
+                    title={`Stage 1: ${(rfpPackage.token_usage.stage1?.totalTokens ?? 0).toLocaleString()} tokens`}
+                  />
+                  <div
+                    className="bg-purple-500 h-full transition-all duration-500"
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Math.min(100, Math.round(((rfpPackage.token_usage.stage2?.totalTokens ?? 0) / rfpPackage.token_usage.totalTokens) * 100))
+                      )}%`,
+                    }}
+                    title={`Stage 2: ${(rfpPackage.token_usage.stage2?.totalTokens ?? 0).toLocaleString()} tokens`}
+                  />
+                  <div
+                    className="bg-emerald-500 h-full transition-all duration-500"
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Math.min(100, Math.round(((rfpPackage.token_usage.stage3?.totalTokens ?? 0) / rfpPackage.token_usage.totalTokens) * 100))
+                      )}%`,
+                    }}
+                    title={`Stage 3: ${(rfpPackage.token_usage.stage3?.totalTokens ?? 0).toLocaleString()} tokens`}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* SECTION: Mandatory Requirements */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-5">
