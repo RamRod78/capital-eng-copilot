@@ -5,6 +5,30 @@ import { eq, and, lt, desc, sql } from 'drizzle-orm';
 
 export const extractionsRouter = new Hono();
 
+function formatExtractionRow(r: any) {
+  return {
+    id: r.id,
+    document_id: r.documentId,
+    batch_id: r.batchId,
+    section_title: r.sectionTitle,
+    requirement_code: r.requirementCode,
+    requirement_text: r.requirementText,
+    item_type: r.itemType,
+    category: r.category,
+    engineering_discipline: r.engineeringDiscipline,
+    compliance_level: r.complianceLevel,
+    estimated_cost_impact: r.estimatedCostImpact,
+    document_owner: r.documentOwner,
+    confidence_score: r.confidenceScore,
+    confidence_reasoning: r.confidenceReasoning,
+    status: r.status,
+    sme_reviewer: r.smeReviewer,
+    sme_comments: r.smeComments,
+    created_at: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+    reviewed_at: r.reviewedAt ? new Date(r.reviewedAt).toISOString() : null,
+  };
+}
+
 // Fetch extractions with filters
 extractionsRouter.get('/', async (c) => {
   try {
@@ -46,7 +70,7 @@ extractionsRouter.get('/', async (c) => {
       );
     }
 
-    return c.json(filtered);
+    return c.json(filtered.map(formatExtractionRow));
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
