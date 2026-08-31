@@ -287,14 +287,14 @@ ${section.content}
 }
 
 /**
- * Stage 3: Synthesis, De-duplication, and Cross-Discipline Review using Gemini 3.6 Flash
+ * Stage 3: Synthesis, De-duplication, and Cross-Discipline Review using Gemini 3.1 Pro
  */
 async function synthesizeAndDeduplicate(
   rawItems: any[],
   documentTitle: string,
   documentOwner: string,
   documentNumber?: string | null,
-  model = 'gemini-3.6-flash'
+  model = 'gemini-3.1-pro'
 ): Promise<ExtractionBatch> {
   // 1. In-memory de-duplication
   const seenTexts = new Set<string>();
@@ -330,30 +330,37 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
   let executiveSummary = `Extracted ${uniqueItems.length} technical requirements across ${disciplines.length} engineering disciplines for ${documentTitle}.`;
   let identifiedDisciplines = disciplines;
 
-  try {
-    const response = await ai.models.generateContent({
-      model,
-      contents: summaryPrompt,
-      config: {
-        systemInstruction: 'Synthesize the extracted engineering items into an executive summary and detect cross-discipline conflicts.',
-        responseMimeType: 'application/json',
-        responseSchema: SYNTHESIS_RESPONSE_SCHEMA,
-        temperature: 0.1,
-      },
-    });
+  const modelsToTry = [model, 'gemini-3.6-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'].filter(
+    (m, idx, arr) => arr.indexOf(m) === idx
+  );
 
-    const parsed = JSON.parse(response.text || '{}');
-    if (parsed.executive_summary) {
-      executiveSummary = parsed.executive_summary;
-      if (Array.isArray(parsed.cross_discipline_conflicts) && parsed.cross_discipline_conflicts.length > 0) {
-        executiveSummary += `\n\nCross-Discipline Notes:\n- ` + parsed.cross_discipline_conflicts.join('\n- ');
+  for (const m of modelsToTry) {
+    try {
+      const response = await ai.models.generateContent({
+        model: m,
+        contents: summaryPrompt,
+        config: {
+          systemInstruction: 'Synthesize the extracted engineering items into an executive summary and detect cross-discipline conflicts.',
+          responseMimeType: 'application/json',
+          responseSchema: SYNTHESIS_RESPONSE_SCHEMA,
+          temperature: 0.1,
+        },
+      });
+
+      const parsed = JSON.parse(response.text || '{}');
+      if (parsed.executive_summary) {
+        executiveSummary = parsed.executive_summary;
+        if (Array.isArray(parsed.cross_discipline_conflicts) && parsed.cross_discipline_conflicts.length > 0) {
+          executiveSummary += `\n\nCross-Discipline Notes:\n- ` + parsed.cross_discipline_conflicts.join('\n- ');
+        }
       }
+      if (Array.isArray(parsed.identified_disciplines) && parsed.identified_disciplines.length > 0) {
+        identifiedDisciplines = parsed.identified_disciplines as any;
+      }
+      break;
+    } catch (err: any) {
+      console.warn(`Stage 3 executive summary synthesis with ${m} failed: ${err.message}. Trying next fallback...`);
     }
-    if (Array.isArray(parsed.identified_disciplines) && parsed.identified_disciplines.length > 0) {
-      identifiedDisciplines = parsed.identified_disciplines as any;
-    }
-  } catch (err: any) {
-    console.warn(`Stage 3 executive summary synthesis with ${model} failed: ${err.message}. Using baseline summary.`);
   }
 
   const batch: ExtractionBatch = {
@@ -372,7 +379,7 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
  * 3-Stage Requirements Extraction Pipeline:
  * Stage 1 (Table of Contents & Chunking): Gemini 3.6 Flash
  * Stage 2 (Parallel Extraction): Gemini 3.7 Flash (with Thinking & Structured Outputs)
- * Stage 3 (Synthesis & De-duplication): Gemini 3.6 Flash
+ * Stage 3 (Synthesis & De-duplication): Gemini 3.1 Pro
  */
 export async function extractRequirementsFromText(
   content: string,
@@ -398,9 +405,9 @@ export async function extractRequirementsFromText(
   const rawItems = sectionResults.flat();
   console.log(`📊 Stage 2 complete: Extracted ${rawItems.length} raw items across all sections.`);
 
-  // Stage 3: Synthesis, De-duplication, & Cross-Discipline Review (Gemini 3.6 Flash)
-  console.log(`🧠 Stage 3: Running synthesis, de-duplication, and cross-discipline review with Gemini 3.6 Flash...`);
-  const finalBatch = await synthesizeAndDeduplicate(rawItems, documentTitle, documentOwner, documentNumber, 'gemini-3.6-flash');
+  // Stage 3: Synthesis, De-duplication, & Cross-Discipline Review (Gemini 3.1 Pro)
+  console.log(`🧠 Stage 3: Running synthesis, de-duplication, and cross-discipline review with Gemini 3.1 Pro...`);
+  const finalBatch = await synthesizeAndDeduplicate(rawItems, documentTitle, documentOwner, documentNumber, 'gemini-3.1-pro');
   console.log(`✅ 3-Stage Pipeline complete: ${finalBatch.items.length} verified requirements generated.`);
 
   return finalBatch;

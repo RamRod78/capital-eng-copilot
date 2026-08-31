@@ -316,7 +316,7 @@ export default function IngestExtract() {
               <div className="bg-brand-950/60 p-3 rounded-lg border border-brand-800/80">
                 <span className="font-semibold text-brand-300 block text-xs">Stage 3: Synthesis & De-duplication</span>
                 <span className="text-slate-300 text-[11px] mt-0.5 block">
-                  Consolidates items, eliminates cross-boundary duplicates, and performs cross-discipline conflict analysis via <strong>Gemini 3.6 Flash</strong>.
+                  Consolidates items, eliminates cross-boundary duplicates, and performs cross-discipline conflict analysis via <strong>Gemini 3.1 Pro</strong>.
                 </span>
               </div>
             </div>
