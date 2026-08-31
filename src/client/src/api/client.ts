@@ -287,7 +287,9 @@ export async function fetchAdminCounts() {
   return res.json();
 }
 
-export async function purgeDatabaseRecords(target: 'all' | 'extractions' | 'scopes' | 'feedback') {
+export async function purgeDatabaseRecords(
+  target: 'all' | 'extractions' | 'scopes' | 'projects' | 'scoping_items' | 'feedback'
+) {
   const res = await fetch(`${API_BASE}/admin/purge`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

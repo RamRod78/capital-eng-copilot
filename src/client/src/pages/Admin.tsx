@@ -9,6 +9,8 @@ import {
   Layers,
   Cpu,
   Target,
+  Briefcase,
+  ListChecks,
   Lightbulb,
   CheckCircle2,
   Loader2,
@@ -18,7 +20,7 @@ import {
 } from 'lucide-react';
 import { fetchAdminCounts, purgeDatabaseRecords } from '../api/client.js';
 
-type PurgeTarget = 'all' | 'extractions' | 'scopes' | 'feedback';
+type PurgeTarget = 'all' | 'extractions' | 'projects' | 'scoping_items' | 'feedback';
 
 interface PurgeConfig {
   target: PurgeTarget;
@@ -32,7 +34,7 @@ const PURGE_OPTIONS: PurgeConfig[] = [
   {
     target: 'all',
     title: 'Purge Entire Database (Full Factory Reset)',
-    description: 'Permanently deletes all engineering documents, extractions, vector embeddings, project scopes, RFP items, lessons learned, and revision flags.',
+    description: 'Permanently deletes all engineering documents, extractions, vector embeddings, project scopes, scoping items, lessons learned, and revision flags.',
     affectedTables: ['documents', 'extractions', 'requirement_embeddings', 'project_scopes', 'scoping_items', 'feedback_lessons', 'document_revision_flags'],
     severity: 'critical',
   },
@@ -44,16 +46,23 @@ const PURGE_OPTIONS: PurgeConfig[] = [
     severity: 'high',
   },
   {
-    target: 'scopes',
-    title: 'Purge Project Scopes & RFPs',
-    description: 'Deletes all generated project scopes, RFP packages, and selected scoping items.',
+    target: 'projects',
+    title: 'Purge Projects & Project Scopes',
+    description: 'Deletes all capital project profiles, scoping configurations, and their linked RFP scoping requirement sets.',
     affectedTables: ['project_scopes', 'scoping_items'],
+    severity: 'high',
+  },
+  {
+    target: 'scoping_items',
+    title: 'Purge Scoping Items & Matched RFPs Only',
+    description: 'Deletes generated scoping requirements and RFP line items while preserving project definitions and facility profiles.',
+    affectedTables: ['scoping_items'],
     severity: 'high',
   },
   {
     target: 'feedback',
     title: 'Purge Lessons Learned & Revision Flags',
-    description: 'Deletes SME feedback lessons and document revision action flags.',
+    description: 'Deletes SME feedback lessons, rationale records, and document revision action flags.',
     affectedTables: ['feedback_lessons', 'document_revision_flags'],
     severity: 'high',
   },
@@ -100,6 +109,7 @@ export default function Admin() {
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       queryClient.invalidateQueries({ queryKey: ['extractions'] });
       queryClient.invalidateQueries({ queryKey: ['scopes'] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
       queryClient.invalidateQueries({ queryKey: ['feedback'] });
       queryClient.invalidateQueries({ queryKey: ['flags'] });
     },
@@ -128,7 +138,7 @@ export default function Admin() {
           type="button"
           onClick={() => refetch()}
           disabled={isRefetching}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
         >
           <RefreshCw className={`w-4 h-4 ${isRefetching ? 'animate-spin' : ''}`} />
           Refresh Table Counts
@@ -145,7 +155,7 @@ export default function Admin() {
           <button
             type="button"
             onClick={() => setSuccessMessage(null)}
-            className="text-emerald-700 hover:text-emerald-900"
+            className="text-emerald-700 hover:text-emerald-900 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -159,7 +169,7 @@ export default function Admin() {
           Current Database Record Volumes
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
             <div className="p-3 bg-blue-50 text-blue-600 rounded-lg">
               <FileText className="w-6 h-6" />
             </div>
@@ -171,7 +181,7 @@ export default function Admin() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
             <div className="p-3 bg-indigo-50 text-indigo-600 rounded-lg">
               <Layers className="w-6 h-6" />
             </div>
@@ -183,7 +193,7 @@ export default function Admin() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
             <div className="p-3 bg-purple-50 text-purple-600 rounded-lg">
               <Cpu className="w-6 h-6" />
             </div>
@@ -195,21 +205,21 @@ export default function Admin() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
             <div className="p-3 bg-emerald-50 text-emerald-600 rounded-lg">
-              <Target className="w-6 h-6" />
+              <Briefcase className="w-6 h-6" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase">Project Scopes</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase">Projects & Scopes</p>
               <p className="text-2xl font-black text-slate-900">
-                {isLoading ? '...' : (counts?.project_scopes ?? 0).toLocaleString()}
+                {isLoading ? '...' : ((counts?.projects ?? counts?.project_scopes) ?? 0).toLocaleString()}
               </p>
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
             <div className="p-3 bg-teal-50 text-teal-600 rounded-lg">
-              <Target className="w-6 h-6" />
+              <ListChecks className="w-6 h-6" />
             </div>
             <div>
               <p className="text-xs font-semibold text-slate-500 uppercase">Scoping Items</p>
@@ -219,7 +229,7 @@ export default function Admin() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
             <div className="p-3 bg-amber-50 text-amber-600 rounded-lg">
               <Lightbulb className="w-6 h-6" />
             </div>
@@ -231,7 +241,7 @@ export default function Admin() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
             <div className="p-3 bg-rose-50 text-rose-600 rounded-lg">
               <AlertTriangle className="w-6 h-6" />
             </div>

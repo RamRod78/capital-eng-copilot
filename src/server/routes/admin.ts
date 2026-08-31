@@ -20,6 +20,7 @@ adminRouter.get('/counts', async (c) => {
       extractions: extractions.rows[0]?.count || 0,
       requirement_embeddings: embeddings.rows[0]?.count || 0,
       project_scopes: scopes.rows[0]?.count || 0,
+      projects: scopes.rows[0]?.count || 0,
       scoping_items: scopingItems.rows[0]?.count || 0,
       feedback_lessons: lessons.rows[0]?.count || 0,
       document_revision_flags: flags.rows[0]?.count || 0,
@@ -75,7 +76,7 @@ adminRouter.post('/purge', async (c) => {
       return c.json({ success: true, message: 'Engineering specifications, extractions, and embeddings purged.' });
     }
 
-    if (target === 'scopes') {
+    if (target === 'scopes' || target === 'projects') {
       await client.query(`
         TRUNCATE TABLE 
           scoping_items, 
@@ -83,7 +84,17 @@ adminRouter.post('/purge', async (c) => {
         CASCADE;
       `);
       await client.query('COMMIT');
-      return c.json({ success: true, message: 'Project scopes and RFP packages purged.' });
+      return c.json({ success: true, message: 'Projects, project scopes, and RFP packages purged.' });
+    }
+
+    if (target === 'scoping_items') {
+      await client.query(`
+        TRUNCATE TABLE 
+          scoping_items 
+        CASCADE;
+      `);
+      await client.query('COMMIT');
+      return c.json({ success: true, message: 'Project scoping items and RFP line items purged (project definitions preserved).' });
     }
 
     if (target === 'feedback') {
