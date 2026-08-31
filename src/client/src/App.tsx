@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   XCircle,
   ShieldAlert,
+  BookOpen,
 } from 'lucide-react';
 import { fetchStats } from './api/client.js';
 
@@ -24,6 +25,7 @@ import ProjectScoping from './pages/ProjectScoping.js';
 import LessonsLearned from './pages/LessonsLearned.js';
 import KnowledgeSearch from './pages/KnowledgeSearch.js';
 import Admin from './pages/Admin.js';
+import AboutCDDE from './pages/AboutCDDE.js';
 
 export default function App() {
   const { data: stats } = useQuery({
@@ -181,6 +183,20 @@ export default function App() {
             <span>5. Knowledge Search</span>
           </NavLink>
 
+          <NavLink
+            to="/about"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                isActive
+                  ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
+                  : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+              }`
+            }
+          >
+            <BookOpen className="w-4 h-4 shrink-0" />
+            <span>About CDDE</span>
+          </NavLink>
+
           <div className="pt-3 mt-3 border-t border-slate-800/80">
             <NavLink
               to="/admin"
@@ -213,6 +229,7 @@ export default function App() {
           <Route path="/scoping" element={<ProjectScoping />} />
           <Route path="/lessons" element={<LessonsLearned />} />
           <Route path="/search" element={<KnowledgeSearch />} />
+          <Route path="/about" element={<AboutCDDE />} />
           <Route path="/admin" element={<Admin />} />
         </Routes>
       </main>
