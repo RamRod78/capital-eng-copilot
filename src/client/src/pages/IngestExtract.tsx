@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   UploadCloud,
@@ -8,10 +8,34 @@ import {
   Database,
   Sparkles,
   Loader2,
-  FileSpreadsheet,
+  Clock,
+  Check,
+  Cpu,
+  ChevronDown,
+  ChevronUp,
+  Terminal,
+  ShieldCheck,
 } from 'lucide-react';
-import { parseUploadedFile, extractRequirements, saveExtractionBatch } from '../api/client.js';
-import { ExtractionBatch } from '@shared/schemas';
+import { parseUploadedFile, extractRequirementsStream, saveExtractionBatch } from '../api/client.js';
+import { ExtractionBatch, ExtractionProgressEvent, ExtractionStageId } from '@shared/schemas';
+
+interface StageCardState {
+  stageId: 1 | 2 | 3;
+  title: string;
+  model: string;
+  description: string;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  statusMessage?: string;
+  details?: {
+    sectionsFound?: number;
+    sectionTitles?: string[];
+    currentSectionIndex?: number;
+    currentSectionTitle?: string;
+    totalSections?: number;
+    rawItemsCount?: number;
+    finalItemsCount?: number;
+  };
+}
 
 export default function IngestExtract() {
   const queryClient = useQueryClient();
@@ -29,6 +53,42 @@ export default function IngestExtract() {
 
   const [extractionResult, setExtractionResult] = useState<ExtractionBatch | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+
+  // Progress Tracking State
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [progressEvents, setProgressEvents] = useState<ExtractionProgressEvent[]>([]);
+  const [currentStage, setCurrentStage] = useState<ExtractionStageId | 0>(0);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [showLogTerminal, setShowLogTerminal] = useState(true);
+  const timerRef = useRef<any>(null);
+  const trackerRef = useRef<HTMLDivElement | null>(null);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Timer effect during active extraction
+  useEffect(() => {
+    if (isExtracting) {
+      const startTime = Date.now();
+      timerRef.current = setInterval(() => {
+        setElapsedMs(Date.now() - startTime);
+      }, 100);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isExtracting]);
+
+  // Auto-scroll activity log
+  useEffect(() => {
+    if (logEndRef.current && isExtracting) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [progressEvents, isExtracting]);
 
   // Parse uploaded file
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -58,21 +118,51 @@ export default function IngestExtract() {
     }
   };
 
-  // Run Gemini extraction mutation
-  const extractMutation = useMutation({
-    mutationFn: () =>
-      extractRequirements({
-        content: rawText,
-        documentTitle: docTitle,
-        documentNumber: docNumber,
-        documentDate: docDate,
-        documentOwner: docOwner,
-      }),
-    onSuccess: (data) => {
-      setExtractionResult(data);
-      setSaveSuccess(null);
-    },
-  });
+  // Run Gemini extraction with real-time SSE progress streaming
+  const handleStartExtraction = async () => {
+    if (!rawText.trim() || isExtracting) return;
+
+    setIsExtracting(true);
+    setExtractionError(null);
+    setProgressEvents([]);
+    setCurrentStage(1);
+    setElapsedMs(0);
+    setExtractionResult(null);
+    setSaveSuccess(null);
+
+    // Smooth scroll to progress tracker
+    setTimeout(() => {
+      trackerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+
+    try {
+      const result = await extractRequirementsStream(
+        {
+          content: rawText,
+          documentTitle: docTitle,
+          documentNumber: docNumber,
+          documentDate: docDate,
+          documentOwner: docOwner,
+        },
+        (event: ExtractionProgressEvent) => {
+          setProgressEvents((prev) => [...prev, event]);
+          if (event.stage === 1 || event.stage === 2 || event.stage === 3) {
+            setCurrentStage(event.stage);
+          } else if (event.stage === 'complete') {
+            setCurrentStage('complete');
+          }
+        }
+      );
+
+      setExtractionResult(result);
+      setCurrentStage('complete');
+    } catch (err: any) {
+      setExtractionError(err.message || 'Extraction pipeline failed.');
+      setCurrentStage('error');
+    } finally {
+      setIsExtracting(false);
+    }
+  };
 
   // Save extraction batch to database
   const saveMutation = useMutation({
@@ -94,6 +184,81 @@ export default function IngestExtract() {
       queryClient.invalidateQueries({ queryKey: ['extractions'] });
     },
   });
+
+  // Calculate overall progress percentage
+  const calculateOverallProgress = (): number => {
+    if (currentStage === 0) return 0;
+    if (currentStage === 'complete') return 100;
+    if (currentStage === 'error') return 100;
+
+    if (currentStage === 1) {
+      const hasCompleted = progressEvents.some((e) => e.stage === 1 && e.status === 'completed');
+      return hasCompleted ? 33 : 15;
+    }
+
+    if (currentStage === 2) {
+      const latestStage2Event = [...progressEvents].reverse().find((e) => e.stage === 2);
+      const total = latestStage2Event?.details?.totalSections || 1;
+      const current = latestStage2Event?.details?.currentSectionIndex || 0;
+      const sectionPct = Math.min(Math.round((current / total) * 33), 33);
+      return 33 + (sectionPct || 10);
+    }
+
+    if (currentStage === 3) {
+      const hasCompleted = progressEvents.some((e) => e.stage === 3 && e.status === 'completed');
+      return hasCompleted ? 95 : 75;
+    }
+
+    return 0;
+  };
+
+  // Compute stage cards information
+  const getStageCards = (): StageCardState[] => {
+    const stage1Events = progressEvents.filter((e) => e.stage === 1);
+    const stage2Events = progressEvents.filter((e) => e.stage === 2);
+    const stage3Events = progressEvents.filter((e) => e.stage === 3);
+
+    const stage1Completed = stage1Events.some((e) => e.status === 'completed') || currentStage === 2 || currentStage === 3 || currentStage === 'complete';
+    const stage2Completed = stage2Events.some((e) => e.status === 'completed') || currentStage === 3 || currentStage === 'complete';
+    const stage3Completed = stage3Events.some((e) => e.status === 'completed') || currentStage === 'complete';
+
+    const latestStage1 = stage1Events[stage1Events.length - 1];
+    const latestStage2 = stage2Events[stage2Events.length - 1];
+    const latestStage3 = stage3Events[stage3Events.length - 1];
+
+    return [
+      {
+        stageId: 1,
+        title: 'Stage 1: ToC & Structure Chunking',
+        model: 'Gemini 3.6 Flash',
+        description: 'Scans layout, identifies engineering clauses & partitions logical sections.',
+        status: stage1Completed ? 'completed' : currentStage === 1 ? 'running' : 'pending',
+        statusMessage: latestStage1?.message || 'Awaiting document ingestion...',
+        details: latestStage1?.details,
+      },
+      {
+        stageId: 2,
+        title: 'Stage 2: Parallel Deep Extraction',
+        model: 'Gemini 3.7 Flash (Thinking)',
+        description: 'Runs concurrent deep extraction with structured outputs and thinking process.',
+        status: stage2Completed ? 'completed' : currentStage === 2 ? 'running' : 'pending',
+        statusMessage: latestStage2?.message || 'Pending Stage 1 completion...',
+        details: latestStage2?.details,
+      },
+      {
+        stageId: 3,
+        title: 'Stage 3: Synthesis & De-duplication',
+        model: 'Gemini 3.1 Pro',
+        description: 'De-duplicates clauses, analyzes cross-discipline conflicts & assigns sequence IDs.',
+        status: stage3Completed ? 'completed' : currentStage === 3 ? 'running' : 'pending',
+        statusMessage: latestStage3?.message || 'Pending Stage 2 candidate items...',
+        details: latestStage3?.details,
+      },
+    ];
+  };
+
+  const stageCards = getStageCards();
+  const overallProgress = calculateOverallProgress();
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -289,14 +454,14 @@ export default function IngestExtract() {
 
             <button
               type="button"
-              disabled={extractMutation.isPending || !rawText.trim()}
-              onClick={() => extractMutation.mutate()}
-              className="w-full py-3 px-4 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-bold text-sm shadow-md transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={isExtracting || !rawText.trim()}
+              onClick={handleStartExtraction}
+              className="w-full py-3.5 px-4 bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white rounded-lg font-bold text-sm shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
             >
-              {extractMutation.isPending ? (
+              {isExtracting ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  Running 3-Stage Extraction Pipeline...
+                  Running 3-Stage Extraction Pipeline ({((elapsedMs / 1000).toFixed(1))}s)...
                 </>
               ) : (
                 <>
@@ -338,6 +503,305 @@ export default function IngestExtract() {
           </div>
         </div>
       </div>
+
+      {/* Real-Time Extraction Progress Tracker Card */}
+      {(isExtracting || currentStage !== 0) && (
+        <div
+          ref={trackerRef}
+          className="bg-slate-900 text-white rounded-2xl border border-slate-700/80 shadow-2xl p-6 sm:p-8 space-y-6 overflow-hidden transition-all duration-300"
+        >
+          {/* Header & Status Indicator */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+            <div className="space-y-1">
+              <div className="flex items-center gap-3">
+                <span className="relative flex h-3.5 w-3.5">
+                  {isExtracting ? (
+                    <>
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-brand-500"></span>
+                    </>
+                  ) : currentStage === 'complete' ? (
+                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+                  ) : (
+                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-rose-500"></span>
+                  )}
+                </span>
+                <h2 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                  {isExtracting
+                    ? '⚡ Extraction Pipeline in Progress'
+                    : currentStage === 'complete'
+                    ? '✅ Requirements Extraction Completed'
+                    : '⚠️ Extraction Pipeline Halted'}
+                </h2>
+              </div>
+              <p className="text-xs text-slate-400">
+                {isExtracting
+                  ? `Processing "${docTitle}" through multi-model Gemini agents with live SSE telemetry`
+                  : currentStage === 'complete'
+                  ? `Successfully parsed and structured ${extractionResult?.items.length || 0} requirements across ${extractionResult?.identified_disciplines.length || 0} disciplines`
+                  : 'An error occurred during extraction'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Elapsed Timer */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-700 text-xs font-mono text-slate-200">
+                <Clock className="w-3.5 h-3.5 text-brand-400" />
+                <span>Elapsed: <strong>{(elapsedMs / 1000).toFixed(1)}s</strong></span>
+              </div>
+
+              {/* Status Badge */}
+              <span
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider ${
+                  isExtracting
+                    ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
+                    : currentStage === 'complete'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                }`}
+              >
+                {isExtracting
+                  ? `Stage ${typeof currentStage === 'number' ? currentStage : 3} Active`
+                  : currentStage === 'complete'
+                  ? 'Complete (100%)'
+                  : 'Error'}
+              </span>
+            </div>
+          </div>
+
+          {/* Overall Animated Progress Bar */}
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs font-medium text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-brand-400" />
+                Overall Pipeline Progress
+              </span>
+              <span className="font-mono font-bold text-brand-300">{overallProgress}%</span>
+            </div>
+            <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ease-out ${
+                  currentStage === 'complete'
+                    ? 'bg-gradient-to-r from-brand-500 via-emerald-500 to-emerald-400'
+                    : 'bg-gradient-to-r from-brand-600 via-brand-500 to-brand-400'
+                }`}
+                style={{ width: `${overallProgress}%` }}
+              />
+            </div>
+          </div>
+
+          {/* 3-Stage Interactive Stepper Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {stageCards.map((stage) => {
+              const isCurrent = currentStage === stage.stageId && isExtracting;
+              const isDone = stage.status === 'completed';
+
+              return (
+                <div
+                  key={stage.stageId}
+                  className={`p-4 rounded-xl border transition-all duration-300 flex flex-col justify-between space-y-3 ${
+                    isCurrent
+                      ? 'bg-brand-950/70 border-brand-500 ring-2 ring-brand-500/30 shadow-lg shadow-brand-950/50'
+                      : isDone
+                      ? 'bg-slate-800/80 border-emerald-500/50 shadow-sm'
+                      : 'bg-slate-800/40 border-slate-800 opacity-60'
+                  }`}
+                >
+                  <div className="space-y-2">
+                    {/* Stage Card Header */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                            isDone
+                              ? 'bg-emerald-500 text-white'
+                              : isCurrent
+                              ? 'bg-brand-500 text-white shadow-md shadow-brand-500/50'
+                              : 'bg-slate-700 text-slate-400'
+                          }`}
+                        >
+                          {isDone ? (
+                            <Check className="w-4 h-4 stroke-[3]" />
+                          ) : isCurrent ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            stage.stageId
+                          )}
+                        </div>
+                        <span className="font-bold text-sm text-slate-100">{stage.title}</span>
+                      </div>
+
+                      {/* Status Tag */}
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                          isDone
+                            ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60'
+                            : isCurrent
+                            ? 'bg-brand-900 text-brand-300 border border-brand-700 animate-pulse'
+                            : 'bg-slate-800 text-slate-500'
+                        }`}
+                      >
+                        {isDone ? 'Done' : isCurrent ? 'Running' : 'Queued'}
+                      </span>
+                    </div>
+
+                    {/* Model Badge */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 text-brand-300 border border-slate-700">
+                        {stage.model}
+                      </span>
+                    </div>
+
+                    {/* Description */}
+                    <p className="text-xs text-slate-400 leading-relaxed">{stage.description}</p>
+                  </div>
+
+                  {/* Stage-Specific Live Details */}
+                  <div className="pt-2 border-t border-slate-700/60 text-xs">
+                    {stage.stageId === 1 && stage.details?.sectionsFound ? (
+                      <div className="space-y-1.5">
+                        <span className="text-emerald-400 font-semibold flex items-center gap-1 text-[11px]">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Found {stage.details.sectionsFound} logical sections:
+                        </span>
+                        <div className="flex flex-wrap gap-1 max-h-16 overflow-y-auto custom-scrollbar">
+                          {stage.details.sectionTitles?.slice(0, 4).map((title, idx) => (
+                            <span
+                              key={idx}
+                              className="text-[10px] bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300 truncate max-w-[160px]"
+                              title={title}
+                            >
+                              {title}
+                            </span>
+                          ))}
+                          {(stage.details.sectionTitles?.length || 0) > 4 && (
+                            <span className="text-[10px] text-slate-500 self-center">
+                              +{(stage.details.sectionTitles?.length || 0) - 4} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ) : stage.stageId === 2 && stage.details ? (
+                      <div className="space-y-1.5">
+                        {stage.details.totalSections && (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[11px] text-slate-300 font-medium">
+                              <span>Sections Processed:</span>
+                              <span className="font-mono text-brand-300">
+                                {stage.details.currentSectionIndex || 0} / {stage.details.totalSections}
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className="bg-brand-400 h-full transition-all duration-300"
+                                style={{
+                                  width: `${Math.round(
+                                    ((stage.details.currentSectionIndex || 0) / stage.details.totalSections) * 100
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                        {stage.details.rawItemsCount !== undefined && (
+                          <span className="text-brand-300 font-semibold flex items-center gap-1 text-[11px]">
+                            <Sparkles className="w-3 h-3 text-amber-400" />
+                            {stage.details.rawItemsCount} raw items extracted
+                          </span>
+                        )}
+                      </div>
+                    ) : stage.stageId === 3 && stage.details?.finalItemsCount !== undefined ? (
+                      <div className="space-y-1">
+                        <span className="text-emerald-400 font-semibold flex items-center gap-1 text-[11px]">
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          {stage.details.finalItemsCount} verified requirements ready
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic truncate" title={stage.statusMessage}>
+                        {stage.statusMessage}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Collapsible Live SSE Telemetry Log Feed */}
+          <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowLogTerminal(!showLogTerminal)}
+              className="w-full px-4 py-2.5 bg-slate-900/90 hover:bg-slate-800 flex items-center justify-between text-xs font-mono text-slate-300 transition-colors cursor-pointer"
+            >
+              <span className="flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-brand-400" />
+                Live Agent Execution Feed ({progressEvents.length} telemetry events)
+              </span>
+              <div className="flex items-center gap-1 text-slate-400">
+                <span>{showLogTerminal ? 'Hide' : 'Show'}</span>
+                {showLogTerminal ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </div>
+            </button>
+
+            {showLogTerminal && (
+              <div className="p-4 max-h-48 overflow-y-auto space-y-2 font-mono text-xs text-slate-300 custom-scrollbar bg-slate-950">
+                {progressEvents.length === 0 ? (
+                  <p className="text-slate-500 italic">Initializing pipeline stream...</p>
+                ) : (
+                  progressEvents.map((evt, idx) => (
+                    <div key={idx} className="flex items-start gap-2.5 leading-relaxed">
+                      <span className="text-slate-500 shrink-0 text-[10px] mt-0.5">
+                        {new Date(evt.timestamp).toLocaleTimeString()}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 uppercase ${
+                          evt.stage === 1
+                            ? 'bg-blue-950 text-blue-400 border border-blue-800'
+                            : evt.stage === 2
+                            ? 'bg-purple-950 text-purple-400 border border-purple-800'
+                            : evt.stage === 3
+                            ? 'bg-amber-950 text-amber-400 border border-amber-800'
+                            : 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                        }`}
+                      >
+                        {evt.stage === 'complete' ? 'READY' : `S${evt.stage}`}
+                      </span>
+                      <span className="text-slate-300 text-xs">{evt.message}</span>
+                    </div>
+                  ))
+                )}
+                {isExtracting && (
+                  <div className="flex items-center gap-2 text-brand-400 text-xs animate-pulse">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Gemini agents executing current stage...</span>
+                  </div>
+                )}
+                <div ref={logEndRef} />
+              </div>
+            )}
+          </div>
+
+          {/* Extraction Error Alert */}
+          {extractionError && (
+            <div className="p-4 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-200 text-sm flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-bold">Extraction Pipeline Error</p>
+                <p className="text-xs text-rose-300">{extractionError}</p>
+                <button
+                  type="button"
+                  onClick={handleStartExtraction}
+                  className="mt-2 px-3 py-1 bg-rose-800 hover:bg-rose-700 text-white rounded text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Retry Extraction
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Extraction Results Section */}
       {extractionResult && (
@@ -448,3 +912,4 @@ export default function IngestExtract() {
     </div>
   );
 }
+

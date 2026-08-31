@@ -1,6 +1,7 @@
 import {
   ExtractionBatch,
   ExtractionRecord,
+  ExtractionProgressEvent,
   SMEReviewUpdate,
   SearchResult,
   ProjectScopeInput,
@@ -52,6 +53,92 @@ export async function extractRequirements(data: {
     throw new Error(err.error || 'Extraction failed');
   }
   return res.json();
+}
+
+export async function extractRequirementsStream(
+  data: {
+    content: string;
+    documentTitle?: string;
+    documentNumber?: string;
+    documentDate?: string;
+    documentOwner?: string;
+  },
+  onProgress?: (event: ExtractionProgressEvent) => void
+): Promise<ExtractionBatch> {
+  const res = await fetch(`${API_BASE}/ingest/extract-stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+
+  if (!res.ok) {
+    let errMsg = 'Extraction failed';
+    try {
+      const err = await res.json();
+      errMsg = err.error || errMsg;
+    } catch (_) {}
+    throw new Error(errMsg);
+  }
+
+  if (!res.body) {
+    throw new Error('ReadableStream not supported on this response');
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  let finalResult: ExtractionBatch | null = null;
+  let streamError: string | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split(/\r?\n\r?\n/);
+    buffer = chunks.pop() || '';
+
+    for (const chunk of chunks) {
+      if (!chunk.trim()) continue;
+
+      const chunkLines = chunk.split(/\r?\n/);
+      let eventType = 'message';
+      let dataStr = '';
+
+      for (const line of chunkLines) {
+        if (line.startsWith('event:')) {
+          eventType = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          dataStr = line.slice(5).trim();
+        }
+      }
+
+      if (!dataStr) continue;
+
+      try {
+        const parsed = JSON.parse(dataStr);
+        if (eventType === 'progress') {
+          onProgress?.(parsed as ExtractionProgressEvent);
+        } else if (eventType === 'result') {
+          finalResult = parsed as ExtractionBatch;
+        } else if (eventType === 'error') {
+          streamError = parsed.error || 'Extraction failed';
+        }
+      } catch (parseErr) {
+        console.warn('Failed to parse SSE event chunk:', dataStr, parseErr);
+      }
+    }
+  }
+
+  if (streamError) {
+    throw new Error(streamError);
+  }
+
+  if (!finalResult) {
+    throw new Error('Extraction stream ended without returning final result');
+  }
+
+  return finalResult;
 }
 
 export async function saveExtractionBatch(data: {

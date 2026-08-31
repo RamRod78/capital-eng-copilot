@@ -8,6 +8,7 @@ import {
   RFPPackageSchema,
   DocumentRevisionFlagSchema,
   SearchResultSchema,
+  ExtractionProgressEventSchema,
   getDisciplineCode,
   formatRequirementCode,
   parseRequirementCode,
@@ -270,5 +271,44 @@ describe('Zod Schema Validation', () => {
       const codeSet = new Set(allCodes);
       expect(codeSet.size).toBe(allCodes.length);
     });
+
+    it('validates ExtractionProgressEventSchema across all stages', () => {
+      const event1 = {
+        stage: 1 as const,
+        stageName: 'Structure Chunking & ToC Analysis',
+        status: 'running' as const,
+        message: 'Scanning document layout and chunking into sections...',
+        timestamp: new Date().toISOString(),
+        details: { model: 'Gemini 3.6 Flash' },
+      };
+      const parsed1 = ExtractionProgressEventSchema.parse(event1);
+      expect(parsed1.stage).toBe(1);
+      expect(parsed1.status).toBe('running');
+
+      const event2 = {
+        stage: 2 as const,
+        stageName: 'Parallel Deep Extraction',
+        status: 'completed' as const,
+        message: 'Stage 2 Complete: Extracted 24 raw candidate requirements.',
+        timestamp: new Date().toISOString(),
+        details: { totalSections: 3, rawItemsCount: 24, model: 'Gemini 3.7 Flash (Thinking)' },
+      };
+      const parsed2 = ExtractionProgressEventSchema.parse(event2);
+      expect(parsed2.stage).toBe(2);
+      expect(parsed2.details?.rawItemsCount).toBe(24);
+
+      const eventComplete = {
+        stage: 'complete' as const,
+        stageName: 'Extraction Complete',
+        status: 'completed' as const,
+        message: 'Pipeline finished: 18 requirements ready.',
+        timestamp: new Date().toISOString(),
+        details: { finalItemsCount: 18 },
+      };
+      const parsedComplete = ExtractionProgressEventSchema.parse(eventComplete);
+      expect(parsedComplete.stage).toBe('complete');
+      expect(parsedComplete.details?.finalItemsCount).toBe(18);
+    });
   });
 });
+

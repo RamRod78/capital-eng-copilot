@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { streamSSE } from 'hono/streaming';
 import { db, pool } from '../db/index.js';
 import { documents, extractions } from '../db/schema.js';
 import { extractRequirementsFromText, getEmbedding } from '../services/gemini.js';
@@ -59,7 +60,7 @@ ingestRouter.post('/parse-file', async (c) => {
   }
 });
 
-// Run Gemini extraction on text
+// Run Gemini extraction on text (synchronous)
 ingestRouter.post('/extract', async (c) => {
   try {
     const { content, documentTitle, documentNumber, documentDate, documentOwner } = await c.req.json();
@@ -85,6 +86,54 @@ ingestRouter.post('/extract', async (c) => {
   } catch (err: any) {
     console.error('Extraction failed with error:', err);
     return c.json({ error: err.message || 'Extraction failed' }, 500);
+  }
+});
+
+// Run Gemini extraction on text with real-time SSE progress updates
+ingestRouter.post('/extract-stream', async (c) => {
+  try {
+    const { content, documentTitle, documentNumber, documentDate, documentOwner } = await c.req.json();
+    if (!content || !content.trim()) {
+      return c.json({ error: 'Content is required for extraction' }, 400);
+    }
+
+    return streamSSE(c, async (stream) => {
+      try {
+        const nextSequences = await getNextRequirementSequences();
+
+        const batch = await extractRequirementsFromText(
+          content,
+          documentTitle || 'Engineering Specification',
+          documentOwner || 'General Engineering SME',
+          documentNumber || null,
+          nextSequences,
+          async (progressEvent) => {
+            await stream.writeSSE({
+              event: 'progress',
+              data: JSON.stringify(progressEvent),
+            });
+          }
+        );
+
+        if (documentDate) {
+          batch.document_date = documentDate;
+        }
+
+        await stream.writeSSE({
+          event: 'result',
+          data: JSON.stringify(batch),
+        });
+      } catch (err: any) {
+        console.error('Streaming extraction failed:', err);
+        await stream.writeSSE({
+          event: 'error',
+          data: JSON.stringify({ error: err.message || 'Extraction failed' }),
+        });
+      }
+    });
+  } catch (err: any) {
+    console.error('Extract stream setup failed:', err);
+    return c.json({ error: err.message || 'Failed to start extraction stream' }, 500);
   }
 });
 

@@ -357,3 +357,26 @@ export const DocumentRevisionFlagSchema = z.object({
   resolved_at: z.string().nullable().optional(),
 });
 export type DocumentRevisionFlag = z.infer<typeof DocumentRevisionFlagSchema>;
+
+// Extraction Progress Tracking Types
+export type ExtractionStageId = 1 | 2 | 3 | 'complete' | 'error';
+
+export const ExtractionProgressEventSchema = z.object({
+  stage: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal('complete'), z.literal('error')]),
+  stageName: z.string(),
+  status: z.enum(['running', 'completed', 'error']),
+  message: z.string(),
+  timestamp: z.string(),
+  details: z.object({
+    sectionsFound: z.number().optional(),
+    sectionTitles: z.array(z.string()).optional(),
+    currentSectionIndex: z.number().optional(),
+    currentSectionTitle: z.string().optional(),
+    totalSections: z.number().optional(),
+    rawItemsCount: z.number().optional(),
+    finalItemsCount: z.number().optional(),
+    model: z.string().optional(),
+  }).optional(),
+});
+export type ExtractionProgressEvent = z.infer<typeof ExtractionProgressEventSchema>;
+

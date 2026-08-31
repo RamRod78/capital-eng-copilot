@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
-import { ExtractionBatch, ExtractionBatchSchema, assignUniqueRequirementCodes } from '../../shared/schemas.js';
+import { ExtractionBatch, ExtractionBatchSchema, assignUniqueRequirementCodes, ExtractionProgressEvent } from '../../shared/schemas.js';
 import { getNextRequirementSequences } from './sequences.js';
 
 dotenv.config();
@@ -401,7 +401,8 @@ export async function extractRequirementsFromText(
   documentTitle = 'Engineering Specification',
   documentOwner = 'General Engineering SME',
   documentNumber?: string | null,
-  startingSequences?: Record<string, number>
+  startingSequences?: Record<string, number>,
+  onProgress?: (event: ExtractionProgressEvent) => void | Promise<void>
 ): Promise<ExtractionBatch> {
   if (!content || !content.trim()) {
     throw new Error('Document content is empty; cannot extract requirements.');
@@ -410,19 +411,104 @@ export async function extractRequirementsFromText(
   console.log(`🚀 Starting 3-Stage Extraction Pipeline for "${documentTitle}" (${content.length} chars)...`);
 
   // Stage 1: Table of Contents & Chunking (Gemini 3.6 Flash)
+  await onProgress?.({
+    stage: 1,
+    stageName: 'Structure Chunking & ToC Analysis',
+    status: 'running',
+    message: `Scanning document structure and chunking into logical sections with Gemini 3.6 Flash...`,
+    timestamp: new Date().toISOString(),
+    details: {
+      model: 'Gemini 3.6 Flash',
+    },
+  });
+
   const sections = await scanAndPartitionDocument(content, documentTitle, 'gemini-3.6-flash');
+
+  await onProgress?.({
+    stage: 1,
+    stageName: 'Structure Chunking & ToC Analysis',
+    status: 'completed',
+    message: `Partitioned into ${sections.length} logical engineering section(s).`,
+    timestamp: new Date().toISOString(),
+    details: {
+      sectionsFound: sections.length,
+      sectionTitles: sections.map((s) => s.section_title),
+      model: 'Gemini 3.6 Flash',
+    },
+  });
 
   // Stage 2: Parallel Section Extraction (Gemini 3.7 Flash with Thinking & Structured Outputs)
   console.log(`⚡ Stage 2: Running parallel extraction across ${sections.length} section(s) with Gemini 3.7 Flash (Thinking enabled)...`);
-  const sectionPromises = sections.map((section) =>
-    extractSection(section, documentTitle, documentOwner, 'gemini-3.7-flash')
-  );
+  await onProgress?.({
+    stage: 2,
+    stageName: 'Parallel Deep Extraction',
+    status: 'running',
+    message: `Running parallel extraction across ${sections.length} section(s) with Gemini 3.7 Flash (Thinking enabled)...`,
+    timestamp: new Date().toISOString(),
+    details: {
+      totalSections: sections.length,
+      rawItemsCount: 0,
+      model: 'Gemini 3.7 Flash (Thinking)',
+    },
+  });
+
+  let completedSections = 0;
+  let cumulativeRawItems = 0;
+
+  const sectionPromises = sections.map(async (section, idx) => {
+    const items = await extractSection(section, documentTitle, documentOwner, 'gemini-3.7-flash');
+    completedSections++;
+    cumulativeRawItems += items.length;
+
+    await onProgress?.({
+      stage: 2,
+      stageName: 'Parallel Deep Extraction',
+      status: 'running',
+      message: `Extracted section ${completedSections}/${sections.length}: "${section.section_title}" (${items.length} items)`,
+      timestamp: new Date().toISOString(),
+      details: {
+        currentSectionIndex: completedSections,
+        currentSectionTitle: section.section_title,
+        totalSections: sections.length,
+        rawItemsCount: cumulativeRawItems,
+        model: 'Gemini 3.7 Flash (Thinking)',
+      },
+    });
+
+    return items;
+  });
+
   const sectionResults = await Promise.all(sectionPromises);
   const rawItems = sectionResults.flat();
   console.log(`📊 Stage 2 complete: Extracted ${rawItems.length} raw items across all sections.`);
 
+  await onProgress?.({
+    stage: 2,
+    stageName: 'Parallel Deep Extraction',
+    status: 'completed',
+    message: `Stage 2 Complete: Extracted ${rawItems.length} raw candidate requirements across all ${sections.length} section(s).`,
+    timestamp: new Date().toISOString(),
+    details: {
+      totalSections: sections.length,
+      rawItemsCount: rawItems.length,
+      model: 'Gemini 3.7 Flash (Thinking)',
+    },
+  });
+
   // Stage 3: Synthesis, De-duplication, & Cross-Discipline Review (Gemini 3.1 Pro)
   console.log(`🧠 Stage 3: Running synthesis, de-duplication, and cross-discipline review with Gemini 3.1 Pro...`);
+  await onProgress?.({
+    stage: 3,
+    stageName: 'Synthesis & De-duplication',
+    status: 'running',
+    message: `Synthesizing ${rawItems.length} items, eliminating duplicates, and assigning discipline requirement codes with Gemini 3.1 Pro...`,
+    timestamp: new Date().toISOString(),
+    details: {
+      rawItemsCount: rawItems.length,
+      model: 'Gemini 3.1 Pro',
+    },
+  });
+
   const finalBatch = await synthesizeAndDeduplicate(
     rawItems,
     documentTitle,
@@ -432,6 +518,29 @@ export async function extractRequirementsFromText(
     startingSequences
   );
   console.log(`✅ 3-Stage Pipeline complete: ${finalBatch.items.length} verified requirements generated.`);
+
+  await onProgress?.({
+    stage: 3,
+    stageName: 'Synthesis & De-duplication',
+    status: 'completed',
+    message: `Stage 3 Complete: Synthesized ${finalBatch.items.length} verified requirements.`,
+    timestamp: new Date().toISOString(),
+    details: {
+      finalItemsCount: finalBatch.items.length,
+      model: 'Gemini 3.1 Pro',
+    },
+  });
+
+  await onProgress?.({
+    stage: 'complete',
+    stageName: 'Extraction Complete',
+    status: 'completed',
+    message: `Extraction pipeline finished: ${finalBatch.items.length} requirements ready for review.`,
+    timestamp: new Date().toISOString(),
+    details: {
+      finalItemsCount: finalBatch.items.length,
+    },
+  });
 
   return finalBatch;
 }
