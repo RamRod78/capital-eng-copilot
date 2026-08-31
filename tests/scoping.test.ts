@@ -232,4 +232,32 @@ describe('Project Scoping & RFP Models', () => {
     expect(parsed.token_usage?.stage3?.candidateTokens).toBe(320);
     expect(parsed.token_usage?.totalTokens).toBe(5532);
   });
+
+  it('validates flexible RFP package payload with items for save endpoint', () => {
+    const savePayload = {
+      package_id: '123e4567-e89b-12d3-a456-426614174000',
+      project_name: 'Permian Cryo Gas Plant',
+      facility_type: 'Gas Plant',
+      scope_summary: 'Cryogenic recovery unit',
+      mandatory_requirements: [
+        {
+          scoping_item_id: '223e4567-e89b-12d3-a456-426614174001',
+          extraction_id: '323e4567-e89b-12d3-a456-426614174002',
+          requirement_code: 'REQ-001',
+          requirement_text: 'Flange rating ASME Class 600 minimum.',
+          item_type: 'Requirement',
+          engineering_discipline: 'Piping',
+          compliance_level: 'Mandatory',
+          relevance_score: 0.95,
+          is_selected: true,
+        },
+      ],
+      recommendations: [],
+      guidelines: [],
+    };
+
+    const parsed = RFPPackageSchema.parse(savePayload);
+    expect(parsed.mandatory_requirements[0].requirement_code).toBe('REQ-001');
+    expect(parsed.mandatory_requirements[0].is_selected).toBe(true);
+  });
 });

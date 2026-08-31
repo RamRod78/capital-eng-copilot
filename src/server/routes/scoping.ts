@@ -332,39 +332,53 @@ scopingRouter.post('/match', async (c) => {
   }
 });
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function toValidUuid(val: any): string | null {
+  if (typeof val === 'string' && UUID_REGEX.test(val.trim())) {
+    return val.trim();
+  }
+  return null;
+}
+
 // 7. Save curated RFP Package to database
 scopingRouter.post('/save', async (c) => {
   try {
     const pkg = await c.req.json();
     const { package_id, project_name, project_code, facility_type, scope_summary, mandatory_requirements, recommendations, guidelines } = pkg;
 
-    const targetId = package_id || randomUUID();
-    const [existing] = await db.select().from(projectScopes).where(eq(projectScopes.id, targetId));
+    const validTargetId = toValidUuid(package_id);
+    let existing = null;
+    if (validTargetId) {
+      const [row] = await db.select().from(projectScopes).where(eq(projectScopes.id, validTargetId));
+      existing = row;
+    }
 
-    let scopeId = targetId;
-    if (existing) {
+    let scopeId: string;
+    if (existing && validTargetId) {
+      scopeId = validTargetId;
       await db
         .update(projectScopes)
         .set({
-          projectName: project_name,
-          projectCode: project_code || null,
-          facilityType: facility_type,
-          scopeDescription: scope_summary,
+          projectName: project_name || existing.projectName,
+          projectCode: project_code !== undefined ? (project_code || null) : existing.projectCode,
+          facilityType: facility_type || existing.facilityType,
+          scopeDescription: scope_summary || existing.scopeDescription,
           status: 'Approved',
           updatedAt: new Date(),
         })
-        .where(eq(projectScopes.id, targetId));
+        .where(eq(projectScopes.id, validTargetId));
       // Delete existing scoping items for this scope to replace with updated curated set
-      await db.delete(scopingItems).where(eq(scopingItems.projectScopeId, targetId));
+      await db.delete(scopingItems).where(eq(scopingItems.projectScopeId, validTargetId));
     } else {
+      const newScopeId = validTargetId || randomUUID();
       const [scopeRecord] = await db
         .insert(projectScopes)
         .values({
-          id: targetId,
-          projectName: project_name,
+          id: newScopeId,
+          projectName: project_name || 'Capital Project',
           projectCode: project_code || null,
-          facilityType: facility_type,
-          scopeDescription: scope_summary,
+          facilityType: facility_type || 'General Facility',
+          scopeDescription: scope_summary || '',
           status: 'Approved',
         })
         .returning();
@@ -377,17 +391,40 @@ scopingRouter.post('/save', async (c) => {
       ...(guidelines || []),
     ];
 
+    // Check existing extraction IDs to avoid foreign key violations if extraction_id is orphaned or mock
+    const candidateExtractionIds = allItems
+      .map((it) => toValidUuid(it.extraction_id))
+      .filter((id): id is string => id !== null);
+
+    let validExtractionIdSet = new Set<string>();
+    if (candidateExtractionIds.length > 0) {
+      const client = await pool.connect();
+      try {
+        const validRows = await client.query(
+          `SELECT id FROM extractions WHERE id = ANY($1::uuid[])`,
+          [candidateExtractionIds]
+        );
+        validExtractionIdSet = new Set(validRows.rows.map((r: any) => r.id));
+      } finally {
+        client.release();
+      }
+    }
+
     for (const it of allItems) {
+      const extId = toValidUuid(it.extraction_id);
+      const safeExtractionId = extId && validExtractionIdSet.has(extId) ? extId : null;
+      const itemId = toValidUuid(it.scoping_item_id) || randomUUID();
+
       await db.insert(scopingItems).values({
-        id: it.scoping_item_id || randomUUID(),
+        id: itemId,
         projectScopeId: scopeId,
-        extractionId: it.extraction_id || null,
+        extractionId: safeExtractionId,
         requirementCode: it.requirement_code || null,
-        requirementText: it.requirement_text,
+        requirementText: it.requirement_text || 'Requirement statement',
         itemType: it.item_type || 'Requirement',
         engineeringDiscipline: it.engineering_discipline || 'General',
         complianceLevel: it.compliance_level || 'Mandatory',
-        relevanceScore: it.relevance_score || 1.0,
+        relevanceScore: Number(it.relevance_score) || 1.0,
         isSelected: it.is_selected ?? true,
         customNotes: it.custom_notes || null,
       });
@@ -395,6 +432,7 @@ scopingRouter.post('/save', async (c) => {
 
     return c.json({ success: true, scopeId });
   } catch (err: any) {
-    return c.json({ error: err.message }, 500);
+    console.error('Error saving scope package:', err);
+    return c.json({ error: err.message || 'Failed to save scope package' }, 500);
   }
 });

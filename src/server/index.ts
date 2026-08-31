@@ -48,16 +48,30 @@ app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOStri
 const clientDistPath = path.resolve(process.cwd(), 'dist/client');
 if (fs.existsSync(clientDistPath)) {
   app.use('/*', serveStatic({ root: './dist/client' }));
-  app.get('*', (c) => {
-    const indexPath = path.join(clientDistPath, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      return c.html(fs.readFileSync(indexPath, 'utf-8'));
-    }
-    return c.text('Capital Engineering Copilot API');
-  });
 }
 
-const port = Number(process.env.STREAMLIT_SERVER_PORT || process.env.PORT || 8501);
+// 404 Not Found Handler: API routes always return JSON; non-API routes serve SPA HTML or fallback
+app.notFound((c) => {
+  if (c.req.path.startsWith('/api')) {
+    return c.json({ error: `API route not found: ${c.req.method} ${c.req.path}` }, 404);
+  }
+  const indexPath = path.join(clientDistPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    return c.html(fs.readFileSync(indexPath, 'utf-8'));
+  }
+  return c.text('Capital Engineering Copilot API');
+});
+
+// Global API Error Handler: API routes always return JSON error payloads
+app.onError((err, c) => {
+  console.error(`Unhandled error on ${c.req.method} ${c.req.path}:`, err);
+  if (c.req.path.startsWith('/api')) {
+    return c.json({ error: err.message || 'Internal Server Error' }, 500);
+  }
+  return c.text('Internal Server Error', 500);
+});
+
+const port = Number(process.env.PORT || process.env.STREAMLIT_SERVER_PORT || 3000);
 
 console.log(`🏗️ Capital Engineering Copilot server starting on port ${port}...`);
 

@@ -19,10 +19,37 @@ import {
 
 const API_BASE = '/api';
 
+async function parseResponseJson<T = any>(res: Response, fallbackError = 'Request failed'): Promise<T> {
+  if (!res.ok) {
+    let errMsg = fallbackError;
+    try {
+      const data = await res.json();
+      errMsg = data.error || data.message || fallbackError;
+    } catch (_) {
+      try {
+        const text = await res.text();
+        if (text && !text.trim().startsWith('<')) {
+          errMsg = `${fallbackError} (${res.status}): ${text.slice(0, 150)}`;
+        } else {
+          errMsg = `${fallbackError} (HTTP ${res.status})`;
+        }
+      } catch (_) {
+        errMsg = `${fallbackError} (HTTP ${res.status})`;
+      }
+    }
+    throw new Error(errMsg);
+  }
+
+  try {
+    return await res.json();
+  } catch (err: any) {
+    throw new Error(`Invalid response format from server (${err.message})`);
+  }
+}
+
 export async function fetchStats() {
   const res = await fetch(`${API_BASE}/stats`);
-  if (!res.ok) throw new Error('Failed to fetch stats');
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch stats');
 }
 
 export async function parseUploadedFile(file: File) {
@@ -32,11 +59,7 @@ export async function parseUploadedFile(file: File) {
     method: 'POST',
     body: formData,
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to parse file');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to parse file');
 }
 
 export async function extractRequirements(data: {
@@ -51,11 +74,7 @@ export async function extractRequirements(data: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Extraction failed');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Extraction failed');
 }
 
 export async function extractRequirementsStream(
@@ -79,7 +98,16 @@ export async function extractRequirementsStream(
     try {
       const err = await res.json();
       errMsg = err.error || errMsg;
-    } catch (_) {}
+    } catch (_) {
+      try {
+        const text = await res.text();
+        if (text && !text.trim().startsWith('<')) {
+          errMsg = `Extraction failed (${res.status}): ${text.slice(0, 150)}`;
+        } else {
+          errMsg = `Extraction failed (HTTP ${res.status})`;
+        }
+      } catch (_) {}
+    }
     throw new Error(errMsg);
   }
 
@@ -161,11 +189,7 @@ export async function saveExtractionBatch(data: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to save batch');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to save batch');
 }
 
 export async function fetchExtractions(params?: {
@@ -185,8 +209,7 @@ export async function fetchExtractions(params?: {
   if (params?.keyword) searchParams.append('keyword', params.keyword);
 
   const res = await fetch(`${API_BASE}/extractions?${searchParams.toString()}`);
-  if (!res.ok) throw new Error('Failed to fetch extractions');
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch extractions');
 }
 
 export async function updateExtraction(id: string, update: Partial<SMEReviewUpdate>) {
@@ -195,11 +218,7 @@ export async function updateExtraction(id: string, update: Partial<SMEReviewUpda
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(update),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to update extraction');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to update extraction');
 }
 
 export async function bulkUpdateExtractions(data: {
@@ -212,23 +231,17 @@ export async function bulkUpdateExtractions(data: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to bulk update');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to bulk update');
 }
 
 export async function fetchProjects(): Promise<ProjectScopeRecord[]> {
   const res = await fetch(`${API_BASE}/scoping/projects`);
-  if (!res.ok) throw new Error('Failed to fetch projects');
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch projects');
 }
 
 export async function fetchProject(id: string): Promise<{ project: ProjectScopeRecord; items: ScopingRequirementItem[] }> {
   const res = await fetch(`${API_BASE}/scoping/projects/${id}`);
-  if (!res.ok) throw new Error('Failed to fetch project details');
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch project details');
 }
 
 export async function createProject(data: ProjectCreateInput): Promise<ProjectScopeRecord> {
@@ -237,11 +250,7 @@ export async function createProject(data: ProjectCreateInput): Promise<ProjectSc
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to create project');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to create project');
 }
 
 export async function updateProject(id: string, data: Partial<ProjectCreateInput>): Promise<ProjectScopeRecord> {
@@ -250,22 +259,14 @@ export async function updateProject(id: string, data: Partial<ProjectCreateInput
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to update project');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to update project');
 }
 
 export async function deleteProject(id: string): Promise<{ success: boolean; id: string }> {
   const res = await fetch(`${API_BASE}/scoping/projects/${id}`, {
     method: 'DELETE',
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to delete project');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to delete project');
 }
 
 export async function matchScopeRequirements(input: ProjectScopeInput & { top_k?: number }): Promise<RFPPackage> {
@@ -274,20 +275,12 @@ export async function matchScopeRequirements(input: ProjectScopeInput & { top_k?
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to match scope requirements');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to match scope requirements');
 }
 
 export async function fetchProjectPackage(id: string): Promise<RFPPackage> {
   const res = await fetch(`${API_BASE}/scoping/projects/${id}/package`);
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to fetch scope package');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch scope package');
 }
 
 export async function saveRFPPackage(pkg: RFPPackage) {
@@ -296,17 +289,12 @@ export async function saveRFPPackage(pkg: RFPPackage) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(pkg),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to save RFP package');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to save RFP package');
 }
 
 export async function fetchFeedbackLessons(): Promise<FeedbackEntry[]> {
   const res = await fetch(`${API_BASE}/feedback/lessons`);
-  if (!res.ok) throw new Error('Failed to fetch lessons');
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch lessons');
 }
 
 export async function createFeedbackLesson(data: FeedbackEntryCreate): Promise<FeedbackEntry> {
@@ -315,11 +303,7 @@ export async function createFeedbackLesson(data: FeedbackEntryCreate): Promise<F
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to create feedback lesson');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to create feedback lesson');
 }
 
 export async function fetchDocumentFlags(params?: {
@@ -331,8 +315,7 @@ export async function fetchDocumentFlags(params?: {
   if (params?.owner) searchParams.append('owner', params.owner);
 
   const res = await fetch(`${API_BASE}/feedback/flags?${searchParams.toString()}`);
-  if (!res.ok) throw new Error('Failed to fetch flags');
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch flags');
 }
 
 export async function createDocumentFlag(data: {
@@ -348,19 +331,14 @@ export async function createDocumentFlag(data: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to create flag');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to create flag');
 }
 
 export async function resolveDocumentFlag(id: string) {
   const res = await fetch(`${API_BASE}/feedback/flags/${id}/resolve`, {
     method: 'PATCH',
   });
-  if (!res.ok) throw new Error('Failed to resolve flag');
-  return res.json();
+  return parseResponseJson(res, 'Failed to resolve flag');
 }
 
 export async function searchSimilarRequirements(data: {
@@ -374,17 +352,12 @@ export async function searchSimilarRequirements(data: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Search failed');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Search failed');
 }
 
 export async function fetchAdminCounts() {
   const res = await fetch(`${API_BASE}/admin/counts`);
-  if (!res.ok) throw new Error('Failed to fetch table counts');
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch table counts');
 }
 
 export async function purgeDatabaseRecords(
@@ -395,11 +368,7 @@ export async function purgeDatabaseRecords(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ target }),
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Purge failed');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Purge failed');
 }
 
 export async function reindexAdminEmbeddings() {
@@ -407,11 +376,7 @@ export async function reindexAdminEmbeddings() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to re-index embeddings');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to re-index embeddings');
 }
 
 export async function fetchDocuments(params?: {
@@ -433,20 +398,12 @@ export async function fetchDocuments(params?: {
   if (params?.sortOrder) query.set('sortOrder', params.sortOrder);
 
   const res = await fetch(`${API_BASE}/documents?${query.toString()}`);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to fetch documents');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch documents');
 }
 
 export async function fetchDocumentDetails(id: string): Promise<DocumentRecord> {
   const res = await fetch(`${API_BASE}/documents/${id}`);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to fetch document details');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch document details');
 }
 
 export async function fetchDocumentRequirements(
@@ -475,11 +432,7 @@ export async function fetchDocumentRequirements(
   if (params?.keyword) query.set('keyword', params.keyword);
 
   const res = await fetch(`${API_BASE}/documents/${documentId}/requirements?${query.toString()}`);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || 'Failed to fetch document requirements');
-  }
-  return res.json();
+  return parseResponseJson(res, 'Failed to fetch document requirements');
 }
 
 
