@@ -35,15 +35,15 @@ export default function App() {
       {/* Sidebar */}
       <aside className="w-64 bg-slate-900 text-white flex flex-col shrink-0 border-r border-slate-800 shadow-xl">
         {/* Brand Header */}
-        <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-          <div className="bg-brand-600 p-2.5 rounded-xl shadow-lg shadow-brand-600/30 text-white">
+        <div className="p-5 border-b border-slate-800 flex items-center gap-3">
+          <div className="bg-brand-600 p-2.5 rounded-xl shadow-lg shadow-brand-600/30 text-white shrink-0">
             <HardHat className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="font-bold text-base tracking-tight text-white leading-tight">
-              Capital Copilot
+            <h1 className="font-bold text-sm tracking-tight text-white leading-tight">
+              Capital Design Decision Engine
             </h1>
-            <p className="text-xs text-slate-400 font-medium">EPC Engineering AI</p>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">EPC Engineering AI</p>
           </div>
         </div>
 
