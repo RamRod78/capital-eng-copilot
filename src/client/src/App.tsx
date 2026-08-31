@@ -43,7 +43,7 @@ export default function App() {
             <h1 className="font-bold text-sm tracking-tight text-white leading-tight">
               Capital Design Decision Engine
             </h1>
-            <p className="text-xs text-slate-400 font-medium mt-0.5">EPC Engineering AI</p>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">AI Prototype</p>
           </div>
         </div>
 
