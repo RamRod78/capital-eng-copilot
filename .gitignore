@@ -56,3 +56,6 @@ pgdata/
 
 # Logs
 *.log
+
+# Test Documents & Artifacts
+test_documents/
