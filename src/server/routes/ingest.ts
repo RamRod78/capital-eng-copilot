@@ -3,10 +3,24 @@ import { db, pool } from '../db/index.js';
 import { documents, extractions } from '../db/schema.js';
 import { extractRequirementsFromText, getEmbedding } from '../services/gemini.js';
 import { parseUploadedFileBuffer } from '../services/parsers.js';
-import { assignUniqueRequirementCodes } from '../../shared/schemas.js';
+import {
+  getNextRequirementSequences,
+  getNextRequirementCodesMap,
+  ensureGloballyUniqueCodes,
+} from '../services/sequences.js';
 import { randomUUID } from 'crypto';
 
 export const ingestRouter = new Hono();
+
+// Get next assignable requirement codes per discipline
+ingestRouter.get('/next-codes', async (c) => {
+  try {
+    const data = await getNextRequirementCodesMap();
+    return c.json(data);
+  } catch (err: any) {
+    return c.json({ error: err.message || 'Failed to retrieve next sequence codes' }, 500);
+  }
+});
 
 // Parse uploaded file endpoint
 ingestRouter.post('/parse-file', async (c) => {
@@ -53,11 +67,14 @@ ingestRouter.post('/extract', async (c) => {
       return c.json({ error: 'Content is required for extraction' }, 400);
     }
 
+    const nextSequences = await getNextRequirementSequences();
+
     const batch = await extractRequirementsFromText(
       content,
       documentTitle || 'Engineering Specification',
       documentOwner || 'General Engineering SME',
-      documentNumber || null
+      documentNumber || null,
+      nextSequences
     );
 
     if (documentDate) {
@@ -97,12 +114,9 @@ ingestRouter.post('/save', async (c) => {
     const finalBatchId = batchId || randomUUID();
     let storedCount = 0;
 
-    // Ensure all items have unique REQ-[DISCIPLINE]-[Sequence Number] (8 digits) format
+    // Ensure all items have strictly unique requirement codes against the database
     const itemsList = Array.isArray(items) ? items : [];
-    const hasValidCodes = itemsList.length > 0 && itemsList.every(
-      (it: any) => it.requirement_code && /^REQ-[A-Z0-9]+-\d{8}$/.test(it.requirement_code)
-    );
-    const sanitizedItems = hasValidCodes ? itemsList : assignUniqueRequirementCodes(itemsList);
+    const sanitizedItems = await ensureGloballyUniqueCodes(itemsList);
 
     // 2. Insert extractions and generate embeddings
     for (const item of sanitizedItems) {

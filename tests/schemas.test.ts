@@ -10,6 +10,7 @@ import {
   SearchResultSchema,
   getDisciplineCode,
   formatRequirementCode,
+  parseRequirementCode,
   assignUniqueRequirementCodes,
 } from '../src/shared/schemas.js';
 
@@ -216,6 +217,58 @@ describe('Zod Schema Validation', () => {
         expect(parts[0]).toBe('REQ');
         expect(parts[2].length).toBe(8);
       }
+    });
+
+    it('parses formatted requirement codes correctly', () => {
+      expect(parseRequirementCode('REQ-MEC-00000042')).toEqual({
+        disciplineCode: 'MEC',
+        sequenceNumber: 42,
+      });
+      expect(parseRequirementCode('REQ-ELE-00000105')).toEqual({
+        disciplineCode: 'ELE',
+        sequenceNumber: 105,
+      });
+      expect(parseRequirementCode('INVALID-CODE')).toBeNull();
+      expect(parseRequirementCode(null)).toBeNull();
+    });
+
+    it('assigns globally continuous requirement codes with custom discipline sequence offsets', () => {
+      const batch1 = [
+        { requirement_text: 'Item 1', engineering_discipline: 'Mechanical' },
+        { requirement_text: 'Item 2', engineering_discipline: 'Mechanical' },
+        { requirement_text: 'Item 3', engineering_discipline: 'Electrical' },
+      ];
+
+      const processed1 = assignUniqueRequirementCodes(batch1);
+      expect(processed1[0].requirement_code).toBe('REQ-MEC-00000001');
+      expect(processed1[1].requirement_code).toBe('REQ-MEC-00000002');
+      expect(processed1[2].requirement_code).toBe('REQ-ELE-00000001');
+
+      // Second batch using startingSequence map representing live database max + 1
+      const startingSequences = {
+        MEC: 3, // Next available after MEC 2
+        ELE: 2, // Next available after ELE 1
+        PIP: 1,
+      };
+
+      const batch2 = [
+        { requirement_text: 'Item 4', engineering_discipline: 'Mechanical' },
+        { requirement_text: 'Item 5', engineering_discipline: 'Electrical' },
+        { requirement_text: 'Item 6', engineering_discipline: 'Piping' },
+        { requirement_text: 'Item 7', engineering_discipline: 'Mechanical' },
+      ];
+
+      const processed2 = assignUniqueRequirementCodes(batch2, { startingSequence: startingSequences });
+
+      expect(processed2[0].requirement_code).toBe('REQ-MEC-00000003');
+      expect(processed2[1].requirement_code).toBe('REQ-ELE-00000002');
+      expect(processed2[2].requirement_code).toBe('REQ-PIP-00000001');
+      expect(processed2[3].requirement_code).toBe('REQ-MEC-00000004');
+
+      // Verify all codes between both batches are globally unique
+      const allCodes = [...processed1.map(p => p.requirement_code), ...processed2.map(p => p.requirement_code)];
+      const codeSet = new Set(allCodes);
+      expect(codeSet.size).toBe(allCodes.length);
     });
   });
 });

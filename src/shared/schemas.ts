@@ -77,20 +77,40 @@ export function formatRequirementCode(discipline: string | undefined | null, seq
   return `REQ-${discCode}-${paddedSeq}`;
 }
 
+export function parseRequirementCode(code?: string | null): { disciplineCode: string; sequenceNumber: number } | null {
+  if (!code) return null;
+  const match = code.trim().match(/^REQ-([A-Za-z0-9]+)-(\d+)$/);
+  if (!match) return null;
+  return {
+    disciplineCode: match[1].toUpperCase(),
+    sequenceNumber: parseInt(match[2], 10),
+  };
+}
+
 export function assignUniqueRequirementCodes<T extends { requirement_code?: string | null; engineering_discipline?: string | null }>(
   items: T[],
-  options?: { perDiscipline?: boolean; startingSequence?: number }
+  options?: {
+    perDiscipline?: boolean;
+    startingSequence?: number | Record<string, number>;
+  }
 ): (T & { requirement_code: string })[] {
   const perDiscipline = options?.perDiscipline ?? true;
-  const startingSeq = options?.startingSequence ?? 1;
 
   if (perDiscipline) {
     const disciplineCounters: Record<string, number> = {};
+    const startingMap: Record<string, number> =
+      typeof options?.startingSequence === 'object' && options?.startingSequence !== null
+        ? { ...options.startingSequence }
+        : {};
+    const defaultStart = typeof options?.startingSequence === 'number' ? options.startingSequence : 1;
+
     return items.map((item) => {
       const discCode = getDisciplineCode(item.engineering_discipline);
-      disciplineCounters[discCode] = disciplineCounters[discCode] !== undefined
-        ? disciplineCounters[discCode] + 1
-        : startingSeq;
+      if (disciplineCounters[discCode] === undefined) {
+        disciplineCounters[discCode] = startingMap[discCode] !== undefined ? startingMap[discCode] : defaultStart;
+      } else {
+        disciplineCounters[discCode]++;
+      }
       const seq = disciplineCounters[discCode];
       return {
         ...item,
@@ -98,7 +118,7 @@ export function assignUniqueRequirementCodes<T extends { requirement_code?: stri
       };
     });
   } else {
-    let currentSeq = startingSeq;
+    let currentSeq = typeof options?.startingSequence === 'number' ? options.startingSequence : 1;
     return items.map((item) => {
       const code = formatRequirementCode(item.engineering_discipline, currentSeq);
       currentSeq++;

@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
 import { ExtractionBatch, ExtractionBatchSchema, assignUniqueRequirementCodes } from '../../shared/schemas.js';
+import { getNextRequirementSequences } from './sequences.js';
 
 dotenv.config();
 
@@ -294,7 +295,8 @@ async function synthesizeAndDeduplicate(
   documentTitle: string,
   documentOwner: string,
   documentNumber?: string | null,
-  model = 'gemini-3.1-pro'
+  model = 'gemini-3.1-pro',
+  startingSequences?: Record<string, number>
 ): Promise<ExtractionBatch> {
   // 1. In-memory de-duplication
   const seenTexts = new Set<string>();
@@ -315,6 +317,11 @@ async function synthesizeAndDeduplicate(
     new Set(uniqueItems.map((i) => i.engineering_discipline || 'General'))
   ) as any[];
 
+  const seqs = startingSequences || (await getNextRequirementSequences());
+  const seqContext = Object.entries(seqs)
+    .map(([disc, num]) => `${disc}: ${num}`)
+    .join(', ');
+
   const ai = getGeminiClient();
   const summaryPrompt = `You are a Principal Engineering Reviewer. Synthesize the following ${uniqueItems.length} extracted engineering requirements for document "${documentTitle}"${documentNumber ? ` (Doc No: ${documentNumber})` : ''}.
 Generate a unified executive summary highlighting the primary engineering scope, major equipment packages, and high-risk technical constraints, and check for any cross-discipline conflicts or omissions.
@@ -322,6 +329,7 @@ Generate a unified executive summary highlighting the primary engineering scope,
 Document Title: ${documentTitle}
 ${documentNumber ? `Document Number: ${documentNumber}\n` : ''}Lead SME: ${documentOwner}
 Disciplines Identified: ${disciplines.join(', ')}
+Next Assignable Discipline Sequence Numbers: ${seqContext}
 
 Sample Extracted Items:
 ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_discipline}][${it.compliance_level}] ${it.requirement_code || 'REQ'}: ${it.requirement_text}`).join('\n')}
@@ -364,7 +372,11 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
   }
 
   // 3. Ensure strictly unique formatted requirement codes (REQ-[DISCIPLINE]-[Sequence Number], 8-digit padded)
-  const formattedItems = assignUniqueRequirementCodes(uniqueItems);
+  // using global starting sequence numbers from database
+  const formattedItems = assignUniqueRequirementCodes(uniqueItems, {
+    perDiscipline: true,
+    startingSequence: seqs,
+  });
 
   const batch: ExtractionBatch = {
     document_title: documentTitle,
@@ -388,7 +400,8 @@ export async function extractRequirementsFromText(
   content: string,
   documentTitle = 'Engineering Specification',
   documentOwner = 'General Engineering SME',
-  documentNumber?: string | null
+  documentNumber?: string | null,
+  startingSequences?: Record<string, number>
 ): Promise<ExtractionBatch> {
   if (!content || !content.trim()) {
     throw new Error('Document content is empty; cannot extract requirements.');
@@ -410,7 +423,14 @@ export async function extractRequirementsFromText(
 
   // Stage 3: Synthesis, De-duplication, & Cross-Discipline Review (Gemini 3.1 Pro)
   console.log(`🧠 Stage 3: Running synthesis, de-duplication, and cross-discipline review with Gemini 3.1 Pro...`);
-  const finalBatch = await synthesizeAndDeduplicate(rawItems, documentTitle, documentOwner, documentNumber, 'gemini-3.1-pro');
+  const finalBatch = await synthesizeAndDeduplicate(
+    rawItems,
+    documentTitle,
+    documentOwner,
+    documentNumber,
+    'gemini-3.1-pro',
+    startingSequences
+  );
   console.log(`✅ 3-Stage Pipeline complete: ${finalBatch.items.length} verified requirements generated.`);
 
   return finalBatch;
