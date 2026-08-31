@@ -1,11 +1,23 @@
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
-import { ExtractionBatch, ExtractionBatchSchema, assignUniqueRequirementCodes, ExtractionProgressEvent } from '../../shared/schemas.js';
+import {
+  ExtractionBatch,
+  ExtractionBatchSchema,
+  assignUniqueRequirementCodes,
+  ExtractionProgressEvent,
+  normalizeEngineeringDiscipline,
+  normalizeItemType,
+  normalizeComplianceLevel,
+  normalizeCostImpact,
+} from '../../shared/schemas.js';
 import { getNextRequirementSequences } from './sequences.js';
 
 dotenv.config();
 
 const apiKey = process.env.GEMINI_API_KEY || '';
+
+export const DEFAULT_FLASH_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+export const DEFAULT_PRO_MODEL = process.env.GEMINI_PRO_MODEL || 'gemini-2.5-pro';
 
 export function getGeminiClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey });
@@ -129,7 +141,20 @@ const SYNTHESIS_RESPONSE_SCHEMA = {
     executive_summary: { type: 'STRING' },
     identified_disciplines: {
       type: 'ARRAY',
-      items: { type: 'STRING' },
+      items: {
+        type: 'STRING',
+        enum: [
+          'Mechanical',
+          'Piping',
+          'Electrical',
+          'I&C',
+          'Civil/Structural',
+          'Process',
+          'HSE',
+          'Quality',
+          'General',
+        ],
+      },
     },
     cross_discipline_conflicts: {
       type: 'ARRAY',
@@ -181,12 +206,12 @@ function deterministicChunker(content: string, defaultTitle: string, targetChunk
 }
 
 /**
- * Stage 1: Table of Contents & Chunking using Gemini 3.6 Flash
+ * Stage 1: Table of Contents & Chunking using Gemini Flash
  */
 async function scanAndPartitionDocument(
   content: string,
   documentTitle: string,
-  model = 'gemini-3.6-flash'
+  model = DEFAULT_FLASH_MODEL
 ): Promise<DocumentSection[]> {
   if (content.length < 5000) {
     return [{ section_title: documentTitle || 'General Scope', content: content.trim() }];
@@ -201,25 +226,35 @@ Document Title: ${documentTitle}
 ${content.trim()}
 --- END OF DOCUMENT CONTENT ---`;
 
-  try {
-    const response = await ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
-        systemInstruction: 'Partition the document into logical engineering sections or 10-15 page chunks. Return a JSON array of objects with section_title and full section content.',
-        responseMimeType: 'application/json',
-        responseSchema: SECTIONS_RESPONSE_SCHEMA,
-        temperature: 0.1,
-      },
-    });
+  const modelsToTry = [
+    model,
+    DEFAULT_FLASH_MODEL,
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'gemini-2.0-flash',
+  ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
-    const parsed: DocumentSection[] = JSON.parse(response.text || '[]');
-    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(p => p.section_title && p.content)) {
-      console.log(`📑 Stage 1 complete: Document partitioned into ${parsed.length} logical sections.`);
-      return parsed;
+  for (const m of modelsToTry) {
+    try {
+      const response = await ai.models.generateContent({
+        model: m,
+        contents: prompt,
+        config: {
+          systemInstruction: 'Partition the document into logical engineering sections or 10-15 page chunks. Return a JSON array of objects with section_title and full section content.',
+          responseMimeType: 'application/json',
+          responseSchema: SECTIONS_RESPONSE_SCHEMA,
+          temperature: 0.1,
+        },
+      });
+
+      const parsed: DocumentSection[] = JSON.parse(response.text || '[]');
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(p => p.section_title && p.content)) {
+        console.log(`📑 Stage 1 complete: Document partitioned into ${parsed.length} logical sections with ${m}.`);
+        return parsed;
+      }
+    } catch (err: any) {
+      console.warn(`Stage 1 Gemini ToC chunking with ${m} failed (${err.message}). Trying next fallback...`);
     }
-  } catch (err: any) {
-    console.warn(`Stage 1 Gemini ToC chunking failed (${err.message}). Using deterministic engineering section chunker.`);
   }
 
   const chunks = deterministicChunker(content, documentTitle);
@@ -228,13 +263,13 @@ ${content.trim()}
 }
 
 /**
- * Stage 2: Parallel Extraction across sections using Gemini 3.7 Flash with Thinking & Structured Outputs
+ * Stage 2: Parallel Extraction across sections using Gemini Flash with Structured Outputs
  */
 async function extractSection(
   section: DocumentSection,
   documentTitle: string,
   documentOwner: string,
-  model = 'gemini-3.7-flash'
+  model = DEFAULT_FLASH_MODEL
 ): Promise<any[]> {
   const ai = getGeminiClient();
   const prompt = `Analyze the following engineering section from "${documentTitle}" and extract all concrete technical requirements, recommendations, and guidelines.
@@ -247,9 +282,13 @@ Assigned SME: ${documentOwner}
 ${section.content}
 --- END OF SECTION TEXT ---`;
 
-  const modelsToTry = [model, 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.0-flash'].filter(
-    (m, idx, arr) => arr.indexOf(m) === idx
-  );
+  const modelsToTry = [
+    model,
+    DEFAULT_FLASH_MODEL,
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'gemini-2.0-flash',
+  ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
   for (const m of modelsToTry) {
     try {
@@ -259,11 +298,6 @@ ${section.content}
         responseSchema: EXTRACTION_ITEM_RESPONSE_SCHEMA,
         temperature: 0.1,
       };
-
-      // Enable thinking on Gemini 3.7 Flash
-      if (m.includes('3.7') || m.includes('thinking')) {
-        config.thinkingConfig = { thinkingBudget: 1024 };
-      }
 
       const response = await ai.models.generateContent({
         model: m,
@@ -275,8 +309,13 @@ ${section.content}
       if (Array.isArray(parsed)) {
         return parsed.map((item) => ({
           ...item,
+          engineering_discipline: normalizeEngineeringDiscipline(item.engineering_discipline),
+          item_type: normalizeItemType(item.item_type),
+          compliance_level: normalizeComplianceLevel(item.compliance_level),
+          estimated_cost_impact: normalizeCostImpact(item.estimated_cost_impact),
           section_title: item.section_title || section.section_title,
           document_owner: item.document_owner || documentOwner,
+          confidence_score: Math.max(0, Math.min(1, typeof item.confidence_score === 'number' && !isNaN(item.confidence_score) ? item.confidence_score : 0.95)),
         }));
       }
     } catch (err: any) {
@@ -288,14 +327,14 @@ ${section.content}
 }
 
 /**
- * Stage 3: Synthesis, De-duplication, and Cross-Discipline Review using Gemini 3.1 Pro
+ * Stage 3: Synthesis, De-duplication, and Cross-Discipline Review using Gemini Pro
  */
 async function synthesizeAndDeduplicate(
   rawItems: any[],
   documentTitle: string,
   documentOwner: string,
   documentNumber?: string | null,
-  model = 'gemini-3.1-pro',
+  model = DEFAULT_PRO_MODEL,
   startingSequences?: Record<string, number>
 ): Promise<ExtractionBatch> {
   // 1. In-memory de-duplication
@@ -308,7 +347,15 @@ async function synthesizeAndDeduplicate(
 
     if (!seenTexts.has(normalized)) {
       seenTexts.add(normalized);
-      uniqueItems.push(item);
+      uniqueItems.push({
+        ...item,
+        engineering_discipline: normalizeEngineeringDiscipline(item.engineering_discipline),
+        item_type: normalizeItemType(item.item_type),
+        compliance_level: normalizeComplianceLevel(item.compliance_level),
+        estimated_cost_impact: normalizeCostImpact(item.estimated_cost_impact),
+        confidence_score: Math.max(0, Math.min(1, typeof item.confidence_score === 'number' && !isNaN(item.confidence_score) ? item.confidence_score : 0.95)),
+        confidence_reasoning: item.confidence_reasoning || 'Extracted technical specification clause.',
+      });
     }
   }
 
@@ -338,9 +385,14 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
   let executiveSummary = `Extracted ${uniqueItems.length} technical requirements across ${disciplines.length} engineering disciplines for ${documentTitle}.`;
   let identifiedDisciplines = disciplines;
 
-  const modelsToTry = [model, 'gemini-3.6-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'].filter(
-    (m, idx, arr) => arr.indexOf(m) === idx
-  );
+  const modelsToTry = [
+    model,
+    DEFAULT_PRO_MODEL,
+    DEFAULT_FLASH_MODEL,
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+  ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
 
   for (const m of modelsToTry) {
     try {
@@ -363,7 +415,7 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
         }
       }
       if (Array.isArray(parsed.identified_disciplines) && parsed.identified_disciplines.length > 0) {
-        identifiedDisciplines = parsed.identified_disciplines as any;
+        identifiedDisciplines = parsed.identified_disciplines.map((d: any) => normalizeEngineeringDiscipline(d));
       }
       break;
     } catch (err: any) {
@@ -378,12 +430,19 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
     startingSequence: seqs,
   });
 
+  const cleanedDisciplines = Array.from(
+    new Set([
+      ...(identifiedDisciplines || []).map((d: any) => normalizeEngineeringDiscipline(d)),
+      ...formattedItems.map((i) => i.engineering_discipline),
+    ])
+  );
+
   const batch: ExtractionBatch = {
     document_title: documentTitle,
     document_number: documentNumber || undefined,
     document_owner: documentOwner,
     executive_summary: executiveSummary,
-    identified_disciplines: identifiedDisciplines.length > 0 ? (identifiedDisciplines as any) : ['General'],
+    identified_disciplines: cleanedDisciplines.length > 0 ? (cleanedDisciplines as any) : ['General'],
     items: formattedItems,
   };
 
@@ -392,9 +451,9 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
 
 /**
  * 3-Stage Requirements Extraction Pipeline:
- * Stage 1 (Table of Contents & Chunking): Gemini 3.6 Flash
- * Stage 2 (Parallel Extraction): Gemini 3.7 Flash (with Thinking & Structured Outputs)
- * Stage 3 (Synthesis & De-duplication): Gemini 3.1 Pro
+ * Stage 1 (Table of Contents & Chunking): Gemini Flash
+ * Stage 2 (Parallel Extraction): Gemini Flash (with Structured Outputs)
+ * Stage 3 (Synthesis & De-duplication): Gemini Pro
  */
 export async function extractRequirementsFromText(
   content: string,
@@ -410,19 +469,19 @@ export async function extractRequirementsFromText(
 
   console.log(`🚀 Starting 3-Stage Extraction Pipeline for "${documentTitle}" (${content.length} chars)...`);
 
-  // Stage 1: Table of Contents & Chunking (Gemini 3.6 Flash)
+  // Stage 1: Table of Contents & Chunking
   await onProgress?.({
     stage: 1,
     stageName: 'Structure Chunking & ToC Analysis',
     status: 'running',
-    message: `Scanning document structure and chunking into logical sections with Gemini 3.6 Flash...`,
+    message: `Scanning document structure and chunking into logical sections with ${DEFAULT_FLASH_MODEL}...`,
     timestamp: new Date().toISOString(),
     details: {
-      model: 'Gemini 3.6 Flash',
+      model: DEFAULT_FLASH_MODEL,
     },
   });
 
-  const sections = await scanAndPartitionDocument(content, documentTitle, 'gemini-3.6-flash');
+  const sections = await scanAndPartitionDocument(content, documentTitle, DEFAULT_FLASH_MODEL);
 
   await onProgress?.({
     stage: 1,
@@ -433,22 +492,22 @@ export async function extractRequirementsFromText(
     details: {
       sectionsFound: sections.length,
       sectionTitles: sections.map((s) => s.section_title),
-      model: 'Gemini 3.6 Flash',
+      model: DEFAULT_FLASH_MODEL,
     },
   });
 
-  // Stage 2: Parallel Section Extraction (Gemini 3.7 Flash with Thinking & Structured Outputs)
-  console.log(`⚡ Stage 2: Running parallel extraction across ${sections.length} section(s) with Gemini 3.7 Flash (Thinking enabled)...`);
+  // Stage 2: Parallel Section Extraction
+  console.log(`⚡ Stage 2: Running parallel extraction across ${sections.length} section(s) with ${DEFAULT_FLASH_MODEL}...`);
   await onProgress?.({
     stage: 2,
     stageName: 'Parallel Deep Extraction',
     status: 'running',
-    message: `Running parallel extraction across ${sections.length} section(s) with Gemini 3.7 Flash (Thinking enabled)...`,
+    message: `Running parallel extraction across ${sections.length} section(s) with ${DEFAULT_FLASH_MODEL}...`,
     timestamp: new Date().toISOString(),
     details: {
       totalSections: sections.length,
       rawItemsCount: 0,
-      model: 'Gemini 3.7 Flash (Thinking)',
+      model: DEFAULT_FLASH_MODEL,
     },
   });
 
@@ -456,7 +515,7 @@ export async function extractRequirementsFromText(
   let cumulativeRawItems = 0;
 
   const sectionPromises = sections.map(async (section, idx) => {
-    const items = await extractSection(section, documentTitle, documentOwner, 'gemini-3.7-flash');
+    const items = await extractSection(section, documentTitle, documentOwner, DEFAULT_FLASH_MODEL);
     completedSections++;
     cumulativeRawItems += items.length;
 
@@ -471,7 +530,7 @@ export async function extractRequirementsFromText(
         currentSectionTitle: section.section_title,
         totalSections: sections.length,
         rawItemsCount: cumulativeRawItems,
-        model: 'Gemini 3.7 Flash (Thinking)',
+        model: DEFAULT_FLASH_MODEL,
       },
     });
 
@@ -491,21 +550,21 @@ export async function extractRequirementsFromText(
     details: {
       totalSections: sections.length,
       rawItemsCount: rawItems.length,
-      model: 'Gemini 3.7 Flash (Thinking)',
+      model: DEFAULT_FLASH_MODEL,
     },
   });
 
-  // Stage 3: Synthesis, De-duplication, & Cross-Discipline Review (Gemini 3.1 Pro)
-  console.log(`🧠 Stage 3: Running synthesis, de-duplication, and cross-discipline review with Gemini 3.1 Pro...`);
+  // Stage 3: Synthesis, De-duplication, & Cross-Discipline Review
+  console.log(`🧠 Stage 3: Running synthesis, de-duplication, and cross-discipline review with ${DEFAULT_PRO_MODEL}...`);
   await onProgress?.({
     stage: 3,
     stageName: 'Synthesis & De-duplication',
     status: 'running',
-    message: `Synthesizing ${rawItems.length} items, eliminating duplicates, and assigning discipline requirement codes with Gemini 3.1 Pro...`,
+    message: `Synthesizing ${rawItems.length} items, eliminating duplicates, and assigning discipline requirement codes with ${DEFAULT_PRO_MODEL}...`,
     timestamp: new Date().toISOString(),
     details: {
       rawItemsCount: rawItems.length,
-      model: 'Gemini 3.1 Pro',
+      model: DEFAULT_PRO_MODEL,
     },
   });
 
@@ -514,7 +573,7 @@ export async function extractRequirementsFromText(
     documentTitle,
     documentOwner,
     documentNumber,
-    'gemini-3.1-pro',
+    DEFAULT_PRO_MODEL,
     startingSequences
   );
   console.log(`✅ 3-Stage Pipeline complete: ${finalBatch.items.length} verified requirements generated.`);
@@ -527,7 +586,7 @@ export async function extractRequirementsFromText(
     timestamp: new Date().toISOString(),
     details: {
       finalItemsCount: finalBatch.items.length,
-      model: 'Gemini 3.1 Pro',
+      model: DEFAULT_PRO_MODEL,
     },
   });
 

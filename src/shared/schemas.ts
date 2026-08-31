@@ -8,22 +8,50 @@ export const ReviewStatus = z.enum([
 ]);
 export type ReviewStatus = z.infer<typeof ReviewStatus>;
 
-export const ItemType = z.enum([
+export const ItemTypeValues = [
   'Requirement',     // Mandatory (shall/must)
   'Recommendation',  // Preferred (should)
   'Guideline',       // Optional (may)
-]);
-export type ItemType = z.infer<typeof ItemType>;
+] as const;
 
-export const ComplianceLevel = z.enum([
+export function normalizeItemType(val?: unknown): (typeof ItemTypeValues)[number] {
+  if (!val || typeof val !== 'string') return 'Requirement';
+  const lower = val.trim().toLowerCase();
+  if (lower.includes('recommend')) return 'Recommendation';
+  if (lower.includes('guide') || lower.includes('opt') || lower.includes('info')) return 'Guideline';
+  return 'Requirement';
+}
+
+export const ItemType = z.preprocess(
+  (val) => normalizeItemType(val),
+  z.enum(ItemTypeValues)
+);
+export type ItemType = (typeof ItemTypeValues)[number];
+
+export const ComplianceLevelValues = [
   'Mandatory',
   'Recommended',
   'Optional',
   'Informational',
-]);
-export type ComplianceLevel = z.infer<typeof ComplianceLevel>;
+] as const;
 
-export const EngineeringDiscipline = z.enum([
+export function normalizeComplianceLevel(val?: unknown): (typeof ComplianceLevelValues)[number] {
+  if (!val || typeof val !== 'string') return 'Mandatory';
+  const lower = val.trim().toLowerCase();
+  if (lower.includes('recom')) return 'Recommended';
+  if (lower.includes('opt')) return 'Optional';
+  if (lower.includes('info')) return 'Informational';
+  if (lower.includes('mand') || lower.includes('req') || lower.includes('shall') || lower.includes('must')) return 'Mandatory';
+  return 'Mandatory';
+}
+
+export const ComplianceLevel = z.preprocess(
+  (val) => normalizeComplianceLevel(val),
+  z.enum(ComplianceLevelValues)
+);
+export type ComplianceLevel = (typeof ComplianceLevelValues)[number];
+
+export const EngineeringDisciplineValues = [
   'Mechanical',
   'Piping',
   'Electrical',
@@ -33,8 +61,47 @@ export const EngineeringDiscipline = z.enum([
   'HSE',
   'Quality',
   'General',
-]);
-export type EngineeringDiscipline = z.infer<typeof EngineeringDiscipline>;
+] as const;
+
+export function normalizeEngineeringDiscipline(val?: unknown): (typeof EngineeringDisciplineValues)[number] {
+  if (!val || typeof val !== 'string') return 'General';
+  const trimmed = val.trim();
+  for (const d of EngineeringDisciplineValues) {
+    if (d.toLowerCase() === trimmed.toLowerCase()) return d;
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower.includes('mech')) return 'Mechanical';
+  if (lower.includes('pip')) return 'Piping';
+  if (lower.includes('elec') || lower.includes('power') || lower.includes('substation')) return 'Electrical';
+  if (
+    lower.includes('inst') ||
+    lower.includes('i&c') ||
+    lower.includes('i & c') ||
+    lower.includes('control') ||
+    lower.includes('automation') ||
+    lower.includes('scada') ||
+    lower.includes('telecom')
+  )
+    return 'I&C';
+  if (
+    lower.includes('civil') ||
+    lower.includes('struct') ||
+    lower.includes('foundat') ||
+    lower.includes('geotech') ||
+    lower.includes('architect')
+  )
+    return 'Civil/Structural';
+  if (lower.includes('proc') || lower.includes('chem') || lower.includes('flow')) return 'Process';
+  if (lower.includes('hse') || lower.includes('safe') || lower.includes('env') || lower.includes('fire')) return 'HSE';
+  if (lower.includes('qual') || lower.includes('qa') || lower.includes('qc') || lower.includes('inspect')) return 'Quality';
+  return 'General';
+}
+
+export const EngineeringDiscipline = z.preprocess(
+  (val) => normalizeEngineeringDiscipline(val),
+  z.enum(EngineeringDisciplineValues)
+);
+export type EngineeringDiscipline = (typeof EngineeringDisciplineValues)[number];
 
 export const DISCIPLINE_CODE_MAP: Record<string, string> = {
   Mechanical: 'MEC',
@@ -130,14 +197,29 @@ export function assignUniqueRequirementCodes<T extends { requirement_code?: stri
   }
 }
 
-export const CostImpact = z.enum([
+export const CostImpactValues = [
   'High',
   'Medium',
   'Low',
   'Negligible',
   'TBD',
-]);
-export type CostImpact = z.infer<typeof CostImpact>;
+] as const;
+
+export function normalizeCostImpact(val?: unknown): (typeof CostImpactValues)[number] {
+  if (!val || typeof val !== 'string') return 'TBD';
+  const lower = val.trim().toLowerCase();
+  if (lower.includes('high')) return 'High';
+  if (lower.includes('med')) return 'Medium';
+  if (lower.includes('low')) return 'Low';
+  if (lower.includes('neg')) return 'Negligible';
+  return 'TBD';
+}
+
+export const CostImpact = z.preprocess(
+  (val) => normalizeCostImpact(val),
+  z.enum(CostImpactValues)
+);
+export type CostImpact = (typeof CostImpactValues)[number];
 
 // Extraction Item Schema
 export const ExtractionItemSchema = z.object({

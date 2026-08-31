@@ -61,6 +61,36 @@ describe('Zod Schema Validation', () => {
     expect(parsed.items.length).toBe(1);
   });
 
+  it('gracefully normalizes variant discipline strings like "Civil" and "Instrumentation"', () => {
+    const batchWithVariants = {
+      document_title: 'Plant Electrical Supply and Distribution Standard',
+      document_owner: 'Electrical Lead',
+      executive_summary: 'Plant electrical distribution spec.',
+      identified_disciplines: ['Civil', 'Instrumentation', 'Power', 'Safety', 'QA/QC'],
+      items: [
+        {
+          requirement_text: 'Reinforced concrete foundation pads shall be installed.',
+          engineering_discipline: 'Civil',
+          compliance_level: 'shall',
+          item_type: 'shall requirement',
+          estimated_cost_impact: 'medium cap impact',
+        },
+        {
+          requirement_text: 'SCADA telemetry units shall transmit at 100ms cycle.',
+          engineering_discipline: 'Instrumentation',
+        },
+      ],
+    };
+
+    const parsed = ExtractionBatchSchema.parse(batchWithVariants);
+    expect(parsed.identified_disciplines).toEqual(['Civil/Structural', 'I&C', 'Electrical', 'HSE', 'Quality']);
+    expect(parsed.items[0].engineering_discipline).toBe('Civil/Structural');
+    expect(parsed.items[0].compliance_level).toBe('Mandatory');
+    expect(parsed.items[0].item_type).toBe('Requirement');
+    expect(parsed.items[0].estimated_cost_impact).toBe('Medium');
+    expect(parsed.items[1].engineering_discipline).toBe('I&C');
+  });
+
   it('validates DocumentRecordSchema with document_number and document_date', () => {
     const doc = {
       id: '123e4567-e89b-12d3-a456-426614174000',
