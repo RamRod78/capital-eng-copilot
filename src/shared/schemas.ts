@@ -36,6 +36,80 @@ export const EngineeringDiscipline = z.enum([
 ]);
 export type EngineeringDiscipline = z.infer<typeof EngineeringDiscipline>;
 
+export const DISCIPLINE_CODE_MAP: Record<string, string> = {
+  Mechanical: 'MEC',
+  Piping: 'PIP',
+  Electrical: 'ELE',
+  'I&C': 'INC',
+  'Civil/Structural': 'CIV',
+  Process: 'PRO',
+  HSE: 'HSE',
+  Quality: 'QUA',
+  General: 'GEN',
+};
+
+export function getDisciplineCode(discipline?: string | null): string {
+  if (!discipline) return 'GEN';
+  const trimmed = discipline.trim();
+  if (DISCIPLINE_CODE_MAP[trimmed]) {
+    return DISCIPLINE_CODE_MAP[trimmed];
+  }
+  const lower = trimmed.toLowerCase();
+  for (const [key, code] of Object.entries(DISCIPLINE_CODE_MAP)) {
+    if (key.toLowerCase() === lower) return code;
+  }
+  if (lower.includes('mech')) return 'MEC';
+  if (lower.includes('pip')) return 'PIP';
+  if (lower.includes('elec')) return 'ELE';
+  if (lower.includes('inst') || lower.includes('i&c') || lower.includes('control')) return 'INC';
+  if (lower.includes('civil') || lower.includes('struct')) return 'CIV';
+  if (lower.includes('proc')) return 'PRO';
+  if (lower.includes('hse') || lower.includes('safe') || lower.includes('env')) return 'HSE';
+  if (lower.includes('qual') || lower.includes('qa')) return 'QUA';
+
+  const clean = trimmed.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return clean.slice(0, 3) || 'GEN';
+}
+
+export function formatRequirementCode(discipline: string | undefined | null, sequenceNumber: number): string {
+  const discCode = getDisciplineCode(discipline);
+  const paddedSeq = String(sequenceNumber).padStart(8, '0');
+  return `REQ-${discCode}-${paddedSeq}`;
+}
+
+export function assignUniqueRequirementCodes<T extends { requirement_code?: string | null; engineering_discipline?: string | null }>(
+  items: T[],
+  options?: { perDiscipline?: boolean; startingSequence?: number }
+): T[] {
+  const perDiscipline = options?.perDiscipline ?? true;
+  const startingSeq = options?.startingSequence ?? 1;
+
+  if (perDiscipline) {
+    const disciplineCounters: Record<string, number> = {};
+    return items.map((item) => {
+      const discCode = getDisciplineCode(item.engineering_discipline);
+      disciplineCounters[discCode] = disciplineCounters[discCode] !== undefined
+        ? disciplineCounters[discCode] + 1
+        : startingSeq;
+      const seq = disciplineCounters[discCode];
+      return {
+        ...item,
+        requirement_code: formatRequirementCode(item.engineering_discipline, seq),
+      };
+    });
+  } else {
+    let currentSeq = startingSeq;
+    return items.map((item) => {
+      const code = formatRequirementCode(item.engineering_discipline, currentSeq);
+      currentSeq++;
+      return {
+        ...item,
+        requirement_code: code,
+      };
+    });
+  }
+}
+
 export const CostImpact = z.enum([
   'High',
   'Medium',

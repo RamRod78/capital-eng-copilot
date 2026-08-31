@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
-import { ExtractionBatch, ExtractionBatchSchema } from '../../shared/schemas.js';
+import { ExtractionBatch, ExtractionBatchSchema, assignUniqueRequirementCodes } from '../../shared/schemas.js';
 
 dotenv.config();
 
@@ -17,7 +17,7 @@ Your objective is to analyze engineering RFPs, FEED dossiers, datasheets, standa
 Extract all concrete, enforceable technical requirements, recommendations, and optional guidelines into structured items.
 
 Guidelines for Extraction:
-1. Clause/Code: Identify existing clause references (e.g., 'Sec 3.4.1', 'API-650-Req4') or generate a meaningful identifier (e.g., 'REQ-MEC-001', 'REC-ELE-002', 'GDL-PIP-003').
+1. Clause/Code: Generate a unique requirement identifier following the exact format 'REQ-[DISCIPLINE]-[Sequence Number]' where [DISCIPLINE] is the discipline code (e.g., MEC, PIP, ELE, INC, CIV, PRO, HSE, QUA, GEN) and [Sequence Number] is an 8-digit zero-padded number (e.g., 'REQ-MEC-00000001', 'REQ-ELE-00000002'). If referencing existing clause numbers (e.g., 'Sec 3.4.1', 'API-650-Req4'), record them in 'category' or 'requirement_text'.
 2. Item Type & Compliance Level:
    - Requirement (Mandatory): Strict requirements using 'shall', 'must', 'mandatory', 'required', absolute codes (e.g., ASME, API, NEC).
    - Recommendation (Recommended): Preferred practices using 'should', 'recommended', preferred vendor options or design margins.
@@ -363,13 +363,16 @@ ${uniqueItems.slice(0, 30).map((it, idx) => `${idx + 1}. [${it.engineering_disci
     }
   }
 
+  // 3. Ensure strictly unique formatted requirement codes (REQ-[DISCIPLINE]-[Sequence Number], 8-digit padded)
+  const formattedItems = assignUniqueRequirementCodes(uniqueItems);
+
   const batch: ExtractionBatch = {
     document_title: documentTitle,
     document_number: documentNumber || undefined,
     document_owner: documentOwner,
     executive_summary: executiveSummary,
     identified_disciplines: identifiedDisciplines.length > 0 ? (identifiedDisciplines as any) : ['General'],
-    items: uniqueItems,
+    items: formattedItems,
   };
 
   return ExtractionBatchSchema.parse(batch);

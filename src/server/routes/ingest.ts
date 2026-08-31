@@ -3,6 +3,7 @@ import { db, pool } from '../db/index.js';
 import { documents, extractions } from '../db/schema.js';
 import { extractRequirementsFromText, getEmbedding } from '../services/gemini.js';
 import { parseUploadedFileBuffer } from '../services/parsers.js';
+import { assignUniqueRequirementCodes } from '../../shared/schemas.js';
 import { randomUUID } from 'crypto';
 
 export const ingestRouter = new Hono();
@@ -96,8 +97,15 @@ ingestRouter.post('/save', async (c) => {
     const finalBatchId = batchId || randomUUID();
     let storedCount = 0;
 
+    // Ensure all items have unique REQ-[DISCIPLINE]-[Sequence Number] (8 digits) format
+    const itemsList = Array.isArray(items) ? items : [];
+    const hasValidCodes = itemsList.length > 0 && itemsList.every(
+      (it: any) => it.requirement_code && /^REQ-[A-Z0-9]+-\d{8}$/.test(it.requirement_code)
+    );
+    const sanitizedItems = hasValidCodes ? itemsList : assignUniqueRequirementCodes(itemsList);
+
     // 2. Insert extractions and generate embeddings
-    for (const item of items) {
+    for (const item of sanitizedItems) {
       const [ex] = await db
         .insert(extractions)
         .values({

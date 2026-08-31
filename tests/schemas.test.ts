@@ -7,6 +7,9 @@ import {
   ProjectScopeInputSchema,
   RFPPackageSchema,
   DocumentRevisionFlagSchema,
+  getDisciplineCode,
+  formatRequirementCode,
+  assignUniqueRequirementCodes,
 } from '../src/shared/schemas.js';
 
 describe('Zod Schema Validation', () => {
@@ -125,5 +128,65 @@ describe('Zod Schema Validation', () => {
     expect(parsed.document_number).toBe('SPEC-ENG-2026-001');
     expect(parsed.document_version).toBe('2.1');
     expect(parsed.document_title).toBe('Pressure Vessels & Piping Standard');
+  });
+
+  describe('Unique Requirement Code Generation & Formatting', () => {
+    it('maps standard engineering disciplines to standard 3-letter codes', () => {
+      expect(getDisciplineCode('Mechanical')).toBe('MEC');
+      expect(getDisciplineCode('Piping')).toBe('PIP');
+      expect(getDisciplineCode('Electrical')).toBe('ELE');
+      expect(getDisciplineCode('I&C')).toBe('INC');
+      expect(getDisciplineCode('Civil/Structural')).toBe('CIV');
+      expect(getDisciplineCode('Process')).toBe('PRO');
+      expect(getDisciplineCode('HSE')).toBe('HSE');
+      expect(getDisciplineCode('Quality')).toBe('QUA');
+      expect(getDisciplineCode('General')).toBe('GEN');
+      expect(getDisciplineCode(null)).toBe('GEN');
+      expect(getDisciplineCode(undefined)).toBe('GEN');
+    });
+
+    it('formats requirement code with REQ-[DISCIPLINE]-[Sequence Number] and 8-digit zero padding', () => {
+      expect(formatRequirementCode('Mechanical', 1)).toBe('REQ-MEC-00000001');
+      expect(formatRequirementCode('Piping', 42)).toBe('REQ-PIP-00000042');
+      expect(formatRequirementCode('Electrical', 99999999)).toBe('REQ-ELE-99999999');
+      expect(formatRequirementCode('I&C', 5)).toBe('REQ-INC-00000005');
+      expect(formatRequirementCode('Civil/Structural', 123)).toBe('REQ-CIV-00000123');
+
+      // Verify strict regex structure: REQ-[DISCIPLINE]-[8 digits]
+      const regex = /^REQ-[A-Z0-9]+-\d{8}$/;
+      expect(regex.test(formatRequirementCode('Mechanical', 1))).toBe(true);
+      expect(formatRequirementCode('Mechanical', 1).split('-')[2].length).toBe(8);
+    });
+
+    it('assigns unique requirement codes across extracted items batch', () => {
+      const rawExtractedItems = [
+        { requirement_text: 'Pressure relief valve setting.', engineering_discipline: 'Mechanical' },
+        { requirement_text: 'Piping wall thickness margin.', engineering_discipline: 'Piping' },
+        { requirement_text: 'Compressor nozzle design.', engineering_discipline: 'Mechanical' },
+        { requirement_text: 'Cable tray segregation.', engineering_discipline: 'Electrical' },
+        { requirement_text: 'Motor winding temperature sensors.', engineering_discipline: 'Electrical' },
+      ];
+
+      const processed = assignUniqueRequirementCodes(rawExtractedItems);
+
+      expect(processed[0].requirement_code).toBe('REQ-MEC-00000001');
+      expect(processed[1].requirement_code).toBe('REQ-PIP-00000001');
+      expect(processed[2].requirement_code).toBe('REQ-MEC-00000002');
+      expect(processed[3].requirement_code).toBe('REQ-ELE-00000001');
+      expect(processed[4].requirement_code).toBe('REQ-ELE-00000002');
+
+      // All requirement codes must be distinct
+      const codes = processed.map(p => p.requirement_code);
+      const uniqueCodes = new Set(codes);
+      expect(uniqueCodes.size).toBe(rawExtractedItems.length);
+
+      // Verify each code adheres strictly to REQ-[DISCIPLINE]-[8-digits]
+      for (const code of codes) {
+        expect(code).toMatch(/^REQ-[A-Z0-9]+-\d{8}$/);
+        const parts = code.split('-');
+        expect(parts[0]).toBe('REQ');
+        expect(parts[2].length).toBe(8);
+      }
+    });
   });
 });
