@@ -288,6 +288,36 @@ export const DocumentRecordSchema = z.object({
 });
 export type DocumentRecord = z.infer<typeof DocumentRecordSchema>;
 
+// Document Summary Item (for Document Search list)
+export const DocumentSummaryItemSchema = z.object({
+  id: z.string().uuid(),
+  filename: z.string(),
+  document_number: z.string().nullable().optional(),
+  document_date: z.string().nullable().optional(),
+  document_type: z.string().default('Standard'),
+  owner_sme: z.string().default('Engineering Lead'),
+  version: z.string().default('1.0'),
+  requirement_count: z.number().default(0),
+  status_breakdown: z.object({
+    approved: z.number().default(0),
+    pending: z.number().default(0),
+    edited: z.number().default(0),
+    rejected: z.number().default(0),
+  }).default({ approved: 0, pending: 0, edited: 0, rejected: 0 }),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+});
+export type DocumentSummaryItem = z.infer<typeof DocumentSummaryItemSchema>;
+
+export const DocumentListResponseSchema = z.object({
+  items: z.array(DocumentSummaryItemSchema),
+  total: z.number(),
+  page: z.number(),
+  pageSize: z.number(),
+  totalPages: z.number(),
+});
+export type DocumentListResponse = z.infer<typeof DocumentListResponseSchema>;
+
 // Extraction Record (stored in DB)
 export const ExtractionRecordSchema = z.object({
   id: z.string().uuid(),

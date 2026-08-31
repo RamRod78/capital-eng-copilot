@@ -4,6 +4,8 @@ import {
   ExtractionBatchSchema,
   ExtractionRecordSchema,
   DocumentRecordSchema,
+  DocumentSummaryItemSchema,
+  DocumentListResponseSchema,
   ProjectScopeInputSchema,
   RFPPackageSchema,
   FeedbackEntrySchema,
@@ -110,6 +112,42 @@ describe('Zod Schema Validation', () => {
     expect(parsed.document_number).toBe('SPEC-2026-MEC-001');
     expect(parsed.document_date).toBe('2026-08-31');
     expect(parsed.metadata.documentNumber).toBe('SPEC-2026-MEC-001');
+  });
+
+  it('validates DocumentSummaryItemSchema and DocumentListResponseSchema', () => {
+    const summary = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      filename: 'Centrifugal Pumps API 610',
+      document_number: 'SPEC-MEC-610',
+      document_date: '2024-05-12',
+      document_type: 'Specification',
+      owner_sme: 'Senior Mechanical SME',
+      version: '2.0',
+      requirement_count: 24,
+      status_breakdown: {
+        approved: 18,
+        pending: 4,
+        edited: 2,
+        rejected: 0,
+      },
+    };
+
+    const parsedSummary = DocumentSummaryItemSchema.parse(summary);
+    expect(parsedSummary.document_number).toBe('SPEC-MEC-610');
+    expect(parsedSummary.requirement_count).toBe(24);
+    expect(parsedSummary.status_breakdown.approved).toBe(18);
+
+    const listResponse = {
+      items: [parsedSummary],
+      total: 1,
+      page: 1,
+      pageSize: 10,
+      totalPages: 1,
+    };
+
+    const parsedList = DocumentListResponseSchema.parse(listResponse);
+    expect(parsedList.items.length).toBe(1);
+    expect(parsedList.total).toBe(1);
   });
 
   it('rejects confidence_score outside [0, 1] range', () => {

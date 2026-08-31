@@ -13,6 +13,7 @@ import { extractionsRouter } from './routes/extractions.js';
 import { scopingRouter } from './routes/scoping.js';
 import { feedbackRouter } from './routes/feedback.js';
 import { searchRouter } from './routes/search.js';
+import { documentsRouter } from './routes/documents.js';
 import { adminRouter } from './routes/admin.js';
 import { initDatabase } from './db/init.js';
 
@@ -32,6 +33,7 @@ app.use('*', cors());
 // API Routes
 app.route('/api/stats', statsRouter);
 app.route('/api/ingest', ingestRouter);
+app.route('/api/documents', documentsRouter);
 app.route('/api/extractions', extractionsRouter);
 app.route('/api/scoping', scopingRouter);
 app.route('/api/feedback', feedbackRouter);

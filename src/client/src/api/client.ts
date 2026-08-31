@@ -12,6 +12,9 @@ import {
   FeedbackEntry,
   FeedbackEntryCreate,
   DocumentRevisionFlag,
+  DocumentRecord,
+  DocumentSummaryItem,
+  DocumentListResponse,
 } from '@shared/schemas';
 
 const API_BASE = '/api';
@@ -410,4 +413,73 @@ export async function reindexAdminEmbeddings() {
   }
   return res.json();
 }
+
+export async function fetchDocuments(params?: {
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+  documentType?: string;
+  owner?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}): Promise<DocumentListResponse> {
+  const query = new URLSearchParams();
+  if (params?.keyword) query.set('keyword', params.keyword);
+  if (params?.page) query.set('page', params.page.toString());
+  if (params?.pageSize) query.set('pageSize', params.pageSize.toString());
+  if (params?.documentType) query.set('documentType', params.documentType);
+  if (params?.owner) query.set('owner', params.owner);
+  if (params?.sortBy) query.set('sortBy', params.sortBy);
+  if (params?.sortOrder) query.set('sortOrder', params.sortOrder);
+
+  const res = await fetch(`${API_BASE}/documents?${query.toString()}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch documents');
+  }
+  return res.json();
+}
+
+export async function fetchDocumentDetails(id: string): Promise<DocumentRecord> {
+  const res = await fetch(`${API_BASE}/documents/${id}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch document details');
+  }
+  return res.json();
+}
+
+export async function fetchDocumentRequirements(
+  documentId: string,
+  params?: {
+    status?: string;
+    discipline?: string;
+    keyword?: string;
+  }
+): Promise<{
+  document: {
+    id: string;
+    filename: string;
+    document_number?: string | null;
+    document_date?: string | null;
+    document_type?: string;
+    owner_sme?: string;
+    version?: string;
+  };
+  requirements: ExtractionRecord[];
+  total: number;
+}> {
+  const query = new URLSearchParams();
+  if (params?.status) query.set('status', params.status);
+  if (params?.discipline) query.set('discipline', params.discipline);
+  if (params?.keyword) query.set('keyword', params.keyword);
+
+  const res = await fetch(`${API_BASE}/documents/${documentId}/requirements?${query.toString()}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to fetch document requirements');
+  }
+  return res.json();
+}
+
 
