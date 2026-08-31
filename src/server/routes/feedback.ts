@@ -5,6 +5,38 @@ import { eq, desc, and } from 'drizzle-orm';
 
 export const feedbackRouter = new Hono();
 
+function formatFeedbackLesson(row: any) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    extraction_id: row.extractionId,
+    project_scope_id: row.projectScopeId,
+    original_text: row.originalText,
+    reviewed_text: row.reviewedText,
+    original_status: row.originalStatus,
+    final_status: row.finalStatus,
+    reviewer: row.reviewer,
+    reason: row.reason,
+    created_at: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+  };
+}
+
+function formatDocumentRevisionFlag(row: any) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    document_id: row.documentId,
+    document_title: row.documentTitle,
+    document_owner: row.documentOwner,
+    flagged_by: row.flaggedBy,
+    issue_description: row.issueDescription,
+    suggested_action: row.suggestedAction,
+    is_resolved: row.isResolved,
+    created_at: row.createdAt ? new Date(row.createdAt).toISOString() : null,
+    resolved_at: row.resolvedAt ? new Date(row.resolvedAt).toISOString() : null,
+  };
+}
+
 // Get feedback lessons log
 feedbackRouter.get('/lessons', async (c) => {
   try {
@@ -12,7 +44,7 @@ feedbackRouter.get('/lessons', async (c) => {
       .select()
       .from(feedbackLessons)
       .orderBy(desc(feedbackLessons.createdAt));
-    return c.json(lessons);
+    return c.json(lessons.map(formatFeedbackLesson));
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -51,7 +83,7 @@ feedbackRouter.post('/lessons', async (c) => {
       })
       .returning();
 
-    return c.json(lesson, 201);
+    return c.json(formatFeedbackLesson(lesson), 201);
   } catch (err: any) {
     console.error('Error creating feedback lesson:', err);
     return c.json({ error: err.message }, 500);
@@ -79,7 +111,7 @@ feedbackRouter.get('/flags', async (c) => {
     }
 
     const flags = await query.orderBy(desc(documentRevisionFlags.createdAt));
-    return c.json(flags);
+    return c.json(flags.map(formatDocumentRevisionFlag));
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -101,7 +133,7 @@ feedbackRouter.post('/flags', async (c) => {
       })
       .returning();
 
-    return c.json(flag);
+    return c.json(formatDocumentRevisionFlag(flag));
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -120,7 +152,7 @@ feedbackRouter.patch('/flags/:id/resolve', async (c) => {
       .where(eq(documentRevisionFlags.id, id))
       .returning();
 
-    return c.json(updated);
+    return c.json(formatDocumentRevisionFlag(updated));
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }

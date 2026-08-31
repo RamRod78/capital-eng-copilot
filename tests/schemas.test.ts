@@ -6,6 +6,7 @@ import {
   DocumentRecordSchema,
   ProjectScopeInputSchema,
   RFPPackageSchema,
+  FeedbackEntrySchema,
   DocumentRevisionFlagSchema,
   SearchResultSchema,
   ExtractionProgressEventSchema,
@@ -97,6 +98,25 @@ describe('Zod Schema Validation', () => {
     const parsed = ProjectScopeInputSchema.parse(input);
     expect(parsed.project_name).toBe('LNG Cryogenic Storage Train 2');
     expect(parsed.disciplines).toContain('Mechanical');
+  });
+
+  it('validates FeedbackEntrySchema', () => {
+    const lesson = {
+      id: '123e4567-e89b-12d3-a456-426614174000',
+      extraction_id: '123e4567-e89b-12d3-a456-426614174001',
+      original_text: 'Compressor piping shall be carbon steel.',
+      reviewed_text: 'Compressor piping shall be 316L stainless steel.',
+      original_status: 'Pending Review',
+      final_status: 'Edited',
+      reviewer: 'Senior Piping SME',
+      reason: 'Upgraded metallurgy due to H2S sour service requirements.',
+      created_at: '2026-08-31T11:00:00.000Z',
+    };
+    const parsed = FeedbackEntrySchema.parse(lesson);
+    expect(parsed.reviewer).toBe('Senior Piping SME');
+    expect(parsed.final_status).toBe('Edited');
+    expect(parsed.original_text).toBe('Compressor piping shall be carbon steel.');
+    expect(parsed.reviewed_text).toBe('Compressor piping shall be 316L stainless steel.');
   });
 
   it('validates DocumentRevisionFlagSchema', () => {
