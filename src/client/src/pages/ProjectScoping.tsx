@@ -17,6 +17,9 @@ import {
   ArrowRight,
   ArrowLeft,
   AlertTriangle,
+  AlertCircle,
+  ShieldAlert,
+  ShieldCheck,
   X,
   Sliders,
   Building2,
@@ -27,6 +30,15 @@ import {
   Zap,
   Activity,
   Cpu,
+  ChevronDown,
+  ChevronUp,
+  Filter,
+  Copy,
+  FileCheck,
+  RefreshCw,
+  Eye,
+  CheckCheck,
+  HelpCircle,
 } from 'lucide-react';
 import {
   fetchProjects,
@@ -36,6 +48,7 @@ import {
   matchScopeRequirements,
   fetchProjectPackage,
   saveRFPPackage,
+  auditScopeRequirements,
   createFeedbackLesson,
   searchSimilarRequirements,
 } from '../api/client.js';
@@ -44,6 +57,9 @@ import {
   ProjectCreateInput,
   RFPPackage,
   ScopingRequirementItem,
+  ScopeQualityAuditReport,
+  RequirementQualityFlag,
+  ScopeAuditInput,
   SearchResult,
   groupRequirementsByDiscipline,
   sortRequirementItems,
@@ -88,8 +104,8 @@ const SAMPLE_PROJECTS: ProjectCreateInput[] = [
 export default function ProjectScoping() {
   const queryClient = useQueryClient();
 
-  // Wizard Step: 1 = Configure Projects, 2 = Generate RFPs, 3 = Validate RFPs
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  // Wizard Step: 1 = Configure Projects, 2 = Generate RFPs, 3 = Validate RFPs, 4 = Quality & Conflict Scan
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Selected project for RFP Generation & Validation
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -120,6 +136,12 @@ export default function ProjectScoping() {
   const [rfpPackage, setRfpPackage] = useState<RFPPackage | null>(null);
   const [selectedItems, setSelectedItems] = useState<Record<string, boolean>>({});
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Step 4: Quality & Conflict Audit State
+  const [qualityAuditReport, setQualityAuditReport] = useState<ScopeQualityAuditReport | null>(null);
+  const [selectedAuditModel, setSelectedAuditModel] = useState<string>('gemini-3.7-flash');
+  const [auditFilterTab, setAuditFilterTab] = useState<'all' | 'conflicts' | 'ambiguities' | 'duplicates' | 'clean'>('all');
+  const [expandedFlagIds, setExpandedFlagIds] = useState<Record<string, boolean>>({});
 
   // Step 3 Modals
   const [deleteItemTarget, setDeleteItemTarget] = useState<ScopingRequirementItem | null>(null);
@@ -263,6 +285,11 @@ export default function ProjectScoping() {
         initialMap[item.scoping_item_id] = item.is_selected ?? true;
       });
       setSelectedItems(initialMap);
+      if (pkg.quality_audit) {
+        setQualityAuditReport(pkg.quality_audit);
+      } else {
+        setQualityAuditReport(null);
+      }
       setCurrentStep(3);
       const totalCount = pkg.mandatory_requirements.length + pkg.recommendations.length + pkg.guidelines.length;
       showNotification(`Loaded saved scope package for "${project.project_name}" (${totalCount} clauses).`);
@@ -295,6 +322,7 @@ export default function ProjectScoping() {
         initialMap[item.scoping_item_id] = true;
       });
       setSelectedItems(initialMap);
+      setQualityAuditReport(null);
       setCurrentStep(3);
       showNotification(
         `AI matched ${data.mandatory_requirements.length + data.recommendations.length + data.guidelines.length} specifications for validation.`
@@ -305,12 +333,13 @@ export default function ProjectScoping() {
     },
   });
 
-  // Save RFP Package Mutation (Step 3) - updates project's scope items without creating a duplicate project
+  // Save RFP Package Mutation (Step 3 & 4)
   const saveRFPMutation = useMutation({
     mutationFn: async (pkg: RFPPackage) => {
       const payload: RFPPackage = {
         ...pkg,
         package_id: activeProject?.id || pkg.package_id,
+        quality_audit: qualityAuditReport || pkg.quality_audit,
         mandatory_requirements: pkg.mandatory_requirements.map((item) => ({
           ...item,
           is_selected: selectedItems[item.scoping_item_id] ?? true,
@@ -334,6 +363,46 @@ export default function ProjectScoping() {
     },
     onError: (err: any) => {
       showNotification(`Save error: ${err.message}`, 'error');
+    },
+  });
+
+  // Step 4: Audit Mutation (Quality, Ambiguity & Cross-Discipline Conflicts)
+  const auditMutation = useMutation({
+    mutationFn: async () => {
+      if (!rfpPackage) throw new Error('No active RFP package to audit');
+      const allActiveItems = [
+        ...rfpPackage.mandatory_requirements,
+        ...rfpPackage.recommendations,
+        ...rfpPackage.guidelines,
+      ].filter((item) => selectedItems[item.scoping_item_id] ?? true);
+
+      if (allActiveItems.length === 0) {
+        throw new Error('Please select at least 1 requirement clause to scan.');
+      }
+
+      const auditInput: ScopeAuditInput = {
+        package_id: activeProject?.id || rfpPackage.package_id,
+        project_name: rfpPackage.project_name,
+        project_code: rfpPackage.project_code,
+        facility_type: rfpPackage.facility_type,
+        operating_conditions: activeProject?.operating_conditions,
+        scope_description: rfpPackage.scope_summary,
+        selected_items: allActiveItems,
+        model: selectedAuditModel,
+      };
+
+      return auditScopeRequirements(auditInput);
+    },
+    onSuccess: (data) => {
+      setQualityAuditReport(data);
+      setRfpPackage((prev) => (prev ? { ...prev, quality_audit: data } : null));
+      setCurrentStep(4);
+      showNotification(
+        `Scope Quality & Conflict Scan complete: Health Score ${data.quality_score}% (${data.flags.length} findings).`
+      );
+    },
+    onError: (err: any) => {
+      showNotification(`Audit error: ${err.message}`, 'error');
     },
   });
 
@@ -513,6 +582,32 @@ export default function ProjectScoping() {
       });
     }
 
+    if (qualityAuditReport) {
+      md += `## 5. Scope Quality, Ambiguity & Cross-Discipline Conflict Audit\n\n`;
+      md += `**Scope Health Score:** ${qualityAuditReport.quality_score}/100\n`;
+      md += `**Scanned Model:** ${qualityAuditReport.model_used}\n`;
+      md += `**Audited Date:** ${new Date(qualityAuditReport.scanned_at).toLocaleString()}\n\n`;
+      md += `### 5.1 Executive Findings Summary\n${qualityAuditReport.executive_summary}\n\n`;
+      md += `### 5.2 RFP Package Manager Decision Guidance\n${qualityAuditReport.manager_guidance}\n\n`;
+      md += `### 5.3 Audit Breakdown\n`;
+      md += `- **Cross-Discipline Conflicts:** ${qualityAuditReport.conflict_count}\n`;
+      md += `- **Ambiguous Clauses:** ${qualityAuditReport.ambiguity_count}\n`;
+      md += `- **Duplicate Specifications:** ${qualityAuditReport.duplication_count}\n\n`;
+
+      if (qualityAuditReport.flags.length > 0) {
+        md += `### 5.4 Identified Quality & Conflict Flags (${qualityAuditReport.flags.length} Flags)\n\n`;
+        qualityAuditReport.flags.forEach((f, idx) => {
+          md += `#### 5.4.${idx + 1} [${f.issue_type} - ${f.severity}] ${f.title}\n`;
+          md += `- **Finding:** ${f.description}\n`;
+          md += `- **Suggested Action:** ${f.suggested_action}\n`;
+          if (f.conflicting_requirement_codes.length > 0) {
+            md += `- **Conflicting Codes:** ${f.conflicting_requirement_codes.join(', ')}\n`;
+          }
+          md += `\n`;
+        });
+      }
+    }
+
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -520,7 +615,7 @@ export default function ProjectScoping() {
     a.download = `${rfpPackage.project_name.replace(/\s+/g, '_')}_Validated_RFP.md`;
     a.click();
     URL.revokeObjectURL(url);
-    showNotification('Exported Markdown RFP package.');
+    showNotification('Exported Markdown RFP package with Quality Audit.');
   };
 
   // Export CSV
@@ -540,10 +635,22 @@ export default function ProjectScoping() {
 
     const all = [...activeMandatory, ...activeRecs, ...activeGuides];
 
-    let csv = `Item Code,Tier,Discipline,Compliance,Requirement Statement,Relevance Score,Status\n`;
+    const flagsByItemId = new Map<string, RequirementQualityFlag[]>();
+    if (qualityAuditReport) {
+      for (const flag of qualityAuditReport.flags) {
+        const existing = flagsByItemId.get(flag.scoping_item_id) || [];
+        existing.push(flag);
+        flagsByItemId.set(flag.scoping_item_id, existing);
+      }
+    }
+
+    let csv = `Item Code,Tier,Discipline,Compliance,Requirement Statement,Relevance Score,Status,Quality Flags,Quality Action\n`;
     all.forEach((item) => {
       const sanitized = item.requirement_text.replace(/"/g, '""');
-      csv += `"${item.requirement_code || 'N/A'}","${item.tier}","${item.engineering_discipline}","${item.compliance_level}","${sanitized}","${(item.relevance_score * 100).toFixed(1)}%","Validated & Included"\n`;
+      const itemFlags = flagsByItemId.get(item.scoping_item_id) || [];
+      const flagSummary = itemFlags.map((f) => `[${f.issue_type}:${f.severity}] ${f.title}`).join('; ').replace(/"/g, '""');
+      const actionSummary = itemFlags.map((f) => f.suggested_action).join('; ').replace(/"/g, '""');
+      csv += `"${item.requirement_code || 'N/A'}","${item.tier}","${item.engineering_discipline}","${item.compliance_level}","${sanitized}","${(item.relevance_score * 100).toFixed(1)}%","Validated & Included","${flagSummary || 'Clean'}","${actionSummary || 'None'}"\n`;
     });
 
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -553,7 +660,7 @@ export default function ProjectScoping() {
     a.download = `${rfpPackage.project_name.replace(/\s+/g, '_')}_Matrix.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    showNotification('Exported CSV Requirements Matrix.');
+    showNotification('Exported CSV Requirements Matrix with Quality Audit columns.');
   };
 
   const totalItemsCount = rfpPackage
@@ -591,7 +698,7 @@ export default function ProjectScoping() {
           🎯 Capital Project Scoping & RFP Generator
         </h1>
         <p className="text-slate-600 mt-1">
-          End-to-end 3-step pipeline: Configure Capital Projects, Generate AI-Matched Specifications, and Validate RFP Matrices with Closed-Loop Lessons Learned.
+          End-to-end 4-step pipeline: Configure Capital Projects, Generate AI-Matched Specifications, Validate & Curate Clauses, and Scan for Duplication, Ambiguity & Cross-Discipline Conflicts.
         </p>
       </div>
 
@@ -610,21 +717,21 @@ export default function ProjectScoping() {
         </div>
       </div>
 
-      {/* 3-Step Visual Stepper */}
+      {/* 4-Step Visual Stepper */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 md:p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 relative">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 relative">
           {/* Step 1 Tab */}
           <button
             type="button"
             onClick={() => setCurrentStep(1)}
-            className={`flex items-center gap-4 p-4 rounded-xl text-left border transition-all cursor-pointer ${
+            className={`flex items-center gap-3.5 p-4 rounded-xl text-left border transition-all cursor-pointer ${
               currentStep === 1
                 ? 'bg-brand-50 border-brand-500 ring-2 ring-brand-500/20'
                 : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70'
             }`}
           >
             <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${
+              className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${
                 currentStep === 1
                   ? 'bg-brand-600 text-white shadow-md'
                   : projects.length > 0
@@ -634,14 +741,14 @@ export default function ProjectScoping() {
             >
               {projects.length > 0 && currentStep !== 1 ? <Check className="w-5 h-5" /> : '1'}
             </div>
-            <div>
-              <div className="text-xs uppercase tracking-wider font-bold text-slate-500">Step 1</div>
-              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                <FolderKanban className="w-4 h-4 text-brand-600" />
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Step 1</div>
+              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5 truncate">
+                <FolderKanban className="w-4 h-4 text-brand-600 shrink-0" />
                 Configure Projects
               </div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {projects.length} {projects.length === 1 ? 'project' : 'projects'} in database
+              <div className="text-xs text-slate-500 mt-0.5 truncate">
+                {projects.length} {projects.length === 1 ? 'project' : 'projects'} in db
               </div>
             </div>
           </button>
@@ -659,14 +766,14 @@ export default function ProjectScoping() {
               }
             }}
             disabled={projects.length === 0}
-            className={`flex items-center gap-4 p-4 rounded-xl text-left border transition-all cursor-pointer ${
+            className={`flex items-center gap-3.5 p-4 rounded-xl text-left border transition-all cursor-pointer ${
               currentStep === 2
                 ? 'bg-brand-50 border-brand-500 ring-2 ring-brand-500/20'
                 : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70 disabled:opacity-50 disabled:cursor-not-allowed'
             }`}
           >
             <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${
+              className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${
                 currentStep === 2
                   ? 'bg-brand-600 text-white shadow-md'
                   : rfpPackage
@@ -674,16 +781,16 @@ export default function ProjectScoping() {
                   : 'bg-slate-200 text-slate-600'
               }`}
             >
-              {rfpPackage && currentStep === 3 ? <Check className="w-5 h-5" /> : '2'}
+              {rfpPackage && currentStep > 2 ? <Check className="w-5 h-5" /> : '2'}
             </div>
-            <div>
-              <div className="text-xs uppercase tracking-wider font-bold text-slate-500">Step 2</div>
-              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-amber-500" />
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Step 2</div>
+              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5 truncate">
+                <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
                 Generate RFPs
               </div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {activeProject ? activeProject.project_name : 'Select Project & Match'}
+              <div className="text-xs text-slate-500 mt-0.5 truncate">
+                {activeProject ? activeProject.project_name : 'Select & Match'}
               </div>
             </div>
           </button>
@@ -695,29 +802,83 @@ export default function ProjectScoping() {
               if (rfpPackage) setCurrentStep(3);
             }}
             disabled={!rfpPackage}
-            className={`flex items-center gap-4 p-4 rounded-xl text-left border transition-all cursor-pointer ${
+            className={`flex items-center gap-3.5 p-4 rounded-xl text-left border transition-all cursor-pointer ${
               currentStep === 3
                 ? 'bg-brand-50 border-brand-500 ring-2 ring-brand-500/20'
                 : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70 disabled:opacity-50 disabled:cursor-not-allowed'
             }`}
           >
             <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${
+              className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${
                 currentStep === 3
                   ? 'bg-brand-600 text-white shadow-md'
+                  : qualityAuditReport && currentStep > 3
+                  ? 'bg-emerald-100 text-emerald-700'
                   : 'bg-slate-200 text-slate-600'
               }`}
             >
-              3
+              {qualityAuditReport && currentStep > 3 ? <Check className="w-5 h-5" /> : '3'}
             </div>
-            <div>
-              <div className="text-xs uppercase tracking-wider font-bold text-slate-500">Step 3</div>
-              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                Validate RFPs
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Step 3</div>
+              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5 truncate">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                Validate & Curate
               </div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {rfpPackage ? `${totalSelectedCount} of ${totalItemsCount} clauses active` : 'Review & Export'}
+              <div className="text-xs text-slate-500 mt-0.5 truncate">
+                {rfpPackage ? `${totalSelectedCount} of ${totalItemsCount} clauses` : 'Review & Curate'}
+              </div>
+            </div>
+          </button>
+
+          {/* Step 4 Tab: Quality & Conflict Scan */}
+          <button
+            type="button"
+            onClick={() => {
+              if (rfpPackage) {
+                if (!qualityAuditReport && !auditMutation.isPending) {
+                  auditMutation.mutate();
+                } else {
+                  setCurrentStep(4);
+                }
+              }
+            }}
+            disabled={!rfpPackage}
+            className={`flex items-center gap-3.5 p-4 rounded-xl text-left border transition-all cursor-pointer ${
+              currentStep === 4
+                ? 'bg-brand-50 border-brand-500 ring-2 ring-brand-500/20'
+                : 'bg-slate-50/70 border-slate-200 hover:bg-slate-100/70 disabled:opacity-50 disabled:cursor-not-allowed'
+            }`}
+          >
+            <div
+              className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 transition-colors ${
+                currentStep === 4
+                  ? 'bg-brand-600 text-white shadow-md'
+                  : qualityAuditReport
+                  ? qualityAuditReport.quality_score >= 80
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-amber-100 text-amber-700'
+                  : 'bg-slate-200 text-slate-600'
+              }`}
+            >
+              {auditMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin text-brand-600" />
+              ) : qualityAuditReport ? (
+                <ShieldCheck className="w-5 h-5" />
+              ) : (
+                '4'
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Step 4</div>
+              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5 truncate">
+                <ShieldAlert className="w-4 h-4 text-purple-600 shrink-0" />
+                Quality & Conflicts
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5 truncate">
+                {qualityAuditReport
+                  ? `${qualityAuditReport.quality_score}% Score · ${qualityAuditReport.flags.length} Flags`
+                  : 'Scan & Finalize'}
               </div>
             </div>
           </button>
@@ -1312,6 +1473,31 @@ export default function ProjectScoping() {
 
                 <button
                   type="button"
+                  disabled={auditMutation.isPending || totalSelectedCount === 0}
+                  onClick={() => {
+                    if (!qualityAuditReport) {
+                      auditMutation.mutate();
+                    } else {
+                      setCurrentStep(4);
+                    }
+                  }}
+                  className="py-2 px-3.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  title="Run Step 4 Quality & Conflict Scan"
+                >
+                  {auditMutation.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ShieldAlert className="w-3.5 h-3.5 text-purple-200" />
+                  )}
+                  {auditMutation.isPending
+                    ? 'Scanning...'
+                    : qualityAuditReport
+                    ? 'Quality & Conflicts (Step 4) →'
+                    : 'Step 4: Quality & Conflict Scan →'}
+                </button>
+
+                <button
+                  type="button"
                   disabled={saveRFPMutation.isPending}
                   onClick={() => saveRFPMutation.mutate(rfpPackage)}
                   className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
@@ -1735,8 +1921,810 @@ export default function ProjectScoping() {
               </div>
             </div>
           )}
+
+          {/* Bottom Step 4 Callout in Step 3 */}
+          <div className="bg-gradient-to-r from-purple-950 via-slate-900 to-indigo-950 text-white p-6 md:p-8 rounded-2xl border border-purple-800/80 shadow-xl flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="space-y-2 text-center md:text-left">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-900/80 border border-purple-700/60 text-purple-200 text-xs font-bold uppercase tracking-wider">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                Step 4 Recommendation
+              </div>
+              <h4 className="font-extrabold text-lg text-slate-100 flex items-center justify-center md:justify-start gap-2">
+                <ShieldAlert className="w-5 h-5 text-purple-400 shrink-0" />
+                Scan Selected Requirements for Conflicts & Ambiguities
+              </h4>
+              <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+                The AI Quality Scanner uses <strong>Gemini 3.7 Flash with Thinking Mode</strong> to cross-reference your {totalSelectedCount} active clauses across disciplines (Mechanical, Piping, Electrical, I&C, HSE, Process), detecting hidden engineering contradictions, vague acceptance criteria, and duplicate specifications.
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={auditMutation.isPending || totalSelectedCount === 0}
+              onClick={() => {
+                if (!qualityAuditReport) {
+                  auditMutation.mutate();
+                } else {
+                  setCurrentStep(4);
+                }
+              }}
+              className="py-3.5 px-6 bg-white hover:bg-purple-50 text-purple-950 font-extrabold text-xs rounded-xl shadow-2xl transition-all flex items-center gap-2 shrink-0 cursor-pointer disabled:opacity-50 hover:scale-[1.02]"
+            >
+              {auditMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+              ) : (
+                <ShieldAlert className="w-4 h-4 text-purple-600" />
+              )}
+              {auditMutation.isPending
+                ? 'Running Multi-Discipline Scan...'
+                : qualityAuditReport
+                ? `View Step 4 Quality Report (${qualityAuditReport.flags.length} Flags) →`
+                : `Scan ${totalSelectedCount} Clauses in Step 4 →`}
+            </button>
+          </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* STEP 4: SCOPE QUALITY, AMBIGUITY & CROSS-DISCIPLINE CONFLICT SCAN       */}
+      {/* ========================================================================= */}
+      {currentStep === 4 && rfpPackage && (() => {
+        const allItems = [
+          ...rfpPackage.mandatory_requirements,
+          ...rfpPackage.recommendations,
+          ...rfpPackage.guidelines,
+        ];
+        const activeItems = allItems.filter((i) => selectedItems[i.scoping_item_id]);
+
+        // Map flags by scoping_item_id
+        const flagsMap = new Map<string, RequirementQualityFlag[]>();
+        if (qualityAuditReport) {
+          for (const f of qualityAuditReport.flags) {
+            const existing = flagsMap.get(f.scoping_item_id) || [];
+            existing.push(f);
+            flagsMap.set(f.scoping_item_id, existing);
+          }
+        }
+
+        const conflictItems = activeItems.filter((i) =>
+          flagsMap.get(i.scoping_item_id)?.some((f) => f.issue_type === 'CrossDisciplineConflict')
+        );
+        const ambiguityItems = activeItems.filter((i) =>
+          flagsMap.get(i.scoping_item_id)?.some((f) => f.issue_type === 'Ambiguity')
+        );
+        const duplicateItems = activeItems.filter((i) =>
+          flagsMap.get(i.scoping_item_id)?.some((f) => f.issue_type === 'Duplication')
+        );
+        const cleanItems = activeItems.filter(
+          (i) => !flagsMap.has(i.scoping_item_id) || flagsMap.get(i.scoping_item_id)?.length === 0
+        );
+
+        const filteredList =
+          auditFilterTab === 'conflicts'
+            ? conflictItems
+            : auditFilterTab === 'ambiguities'
+            ? ambiguityItems
+            : auditFilterTab === 'duplicates'
+            ? duplicateItems
+            : auditFilterTab === 'clean'
+            ? cleanItems
+            : activeItems;
+
+        const score = qualityAuditReport?.quality_score ?? 100;
+        const scoreBg =
+          score >= 85
+            ? 'bg-emerald-500'
+            : score >= 70
+            ? 'bg-amber-500'
+            : 'bg-rose-500';
+
+        const toggleFlagExpanded = (flagId: string) => {
+          setExpandedFlagIds((prev) => ({ ...prev, [flagId]: !prev[flagId] }));
+        };
+
+        return (
+          <div className="space-y-6">
+            {/* Top Quality Audit Bar */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1.5">
+                      <ShieldAlert className="w-3.5 h-3.5 text-purple-600" />
+                      Step 4: Quality & Conflict Audit
+                    </span>
+                    <span className="text-xs text-slate-400">•</span>
+                    <span className="text-xs font-semibold text-slate-600">{rfpPackage.facility_type}</span>
+                    {qualityAuditReport?.scanned_at && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono text-slate-600 bg-slate-100 border border-slate-200">
+                        Scanned: {new Date(qualityAuditReport.scanned_at).toLocaleTimeString()}
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="text-2xl font-extrabold text-slate-900 mt-1 flex items-center gap-2">
+                    {rfpPackage.project_name}
+                  </h2>
+                </div>
+
+                {/* Top Action Buttons */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(3)}
+                    className="py-2 px-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Back to Step 3: Curate
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={auditMutation.isPending || activeItems.length === 0}
+                    onClick={() => auditMutation.mutate()}
+                    className="py-2 px-3.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    {auditMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    )}
+                    {auditMutation.isPending ? 'Scanning...' : 'Re-Scan Clauses'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportMarkdown}
+                    className="py-2 px-3.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Export Validated Markdown
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleExportCSV}
+                    className="py-2 px-3.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    Export CSV Matrix
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={saveRFPMutation.isPending}
+                    onClick={() => saveRFPMutation.mutate(rfpPackage)}
+                    className="py-2 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    {saveRFPMutation.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Database className="w-3.5 h-3.5" />
+                    )}
+                    {saveRFPMutation.isPending ? 'Saving...' : 'Save Audited Package'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Health Scorecard & Metrics Row */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-center">
+                {/* Score Gauge Card */}
+                <div className="md:col-span-2 bg-gradient-to-br from-slate-900 to-slate-950 text-white p-5 rounded-2xl border border-slate-800 flex items-center gap-4 shadow-sm">
+                  <div className="relative w-20 h-20 shrink-0 flex items-center justify-center">
+                    <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                      <path
+                        className="text-slate-800"
+                        strokeWidth="3.5"
+                        stroke="currentColor"
+                        fill="none"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      />
+                      <path
+                        className={score >= 85 ? 'text-emerald-400' : score >= 70 ? 'text-amber-400' : 'text-rose-500'}
+                        strokeDasharray={`${score}, 100`}
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                        stroke="currentColor"
+                        fill="none"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      />
+                    </svg>
+                    <div className="absolute text-center">
+                      <span className="text-xl font-black">{score}</span>
+                      <span className="text-[10px] text-slate-400 block -mt-1">%</span>
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[11px] uppercase tracking-wider font-bold text-slate-400">
+                      RFP Scope Health Score
+                    </div>
+                    <div className="text-sm font-extrabold text-slate-100">
+                      {score >= 85
+                        ? '🟢 Ready for Vendor Tender'
+                        : score >= 70
+                        ? '🟡 Minor Gaps / Ambiguities'
+                        : '🔴 Critical Conflicts Identified'}
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      {activeItems.length} active clauses scanned
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3 Metric Cards */}
+                <div
+                  onClick={() => setAuditFilterTab('conflicts')}
+                  className={`p-4 rounded-xl border text-center cursor-pointer transition-all ${
+                    auditFilterTab === 'conflicts'
+                      ? 'bg-rose-100/70 border-rose-400 ring-2 ring-rose-400/20'
+                      : 'bg-rose-50/50 border-rose-200 hover:bg-rose-100/50'
+                  }`}
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 flex items-center justify-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    Conflicts
+                  </span>
+                  <p className="text-2xl font-black text-rose-800 mt-0.5">{qualityAuditReport?.conflict_count ?? 0}</p>
+                  <span className="text-[10px] text-rose-600/80">Cross-Discipline</span>
+                </div>
+
+                <div
+                  onClick={() => setAuditFilterTab('ambiguities')}
+                  className={`p-4 rounded-xl border text-center cursor-pointer transition-all ${
+                    auditFilterTab === 'ambiguities'
+                      ? 'bg-amber-100/70 border-amber-400 ring-2 ring-amber-400/20'
+                      : 'bg-amber-50/50 border-amber-200 hover:bg-amber-100/50'
+                  }`}
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 flex items-center justify-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Ambiguities
+                  </span>
+                  <p className="text-2xl font-black text-amber-800 mt-0.5">{qualityAuditReport?.ambiguity_count ?? 0}</p>
+                  <span className="text-[10px] text-amber-600/80">Subjective Phrasing</span>
+                </div>
+
+                <div
+                  onClick={() => setAuditFilterTab('duplicates')}
+                  className={`p-4 rounded-xl border text-center cursor-pointer transition-all ${
+                    auditFilterTab === 'duplicates'
+                      ? 'bg-blue-100/70 border-blue-400 ring-2 ring-blue-400/20'
+                      : 'bg-blue-50/50 border-blue-200 hover:bg-blue-100/50'
+                  }`}
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 flex items-center justify-center gap-1">
+                    <Copy className="w-3 h-3" />
+                    Duplicates
+                  </span>
+                  <p className="text-2xl font-black text-blue-800 mt-0.5">{qualityAuditReport?.duplication_count ?? 0}</p>
+                  <span className="text-[10px] text-blue-600/80">Redundancies</span>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Model Recommendation & Observability Box */}
+            <div className="bg-slate-900 text-white p-5 rounded-2xl border border-slate-800 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-5 h-5 text-purple-400" />
+                  <h3 className="font-bold text-sm text-slate-100">
+                    Gemini AI Model Selection & Conflict Reasoning Architecture
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+                  <span className="px-2.5 py-0.5 rounded bg-slate-800 text-purple-300 border border-purple-800/60 font-bold">
+                    Active: {selectedAuditModel}
+                  </span>
+                  {qualityAuditReport?.token_usage && qualityAuditReport.token_usage.totalTokens > 0 && (
+                    <span className="text-[11px] text-slate-400 font-sans">
+                      ({qualityAuditReport.token_usage.totalTokens.toLocaleString()} tokens used)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                {/* Model 1: Gemini 3.7 Flash Thinking (Recommended) */}
+                <div
+                  onClick={() => setSelectedAuditModel('gemini-3.7-flash')}
+                  className={`p-3.5 rounded-xl border cursor-pointer transition-all space-y-1.5 ${
+                    selectedAuditModel === 'gemini-3.7-flash'
+                      ? 'bg-purple-950/60 border-purple-500 ring-2 ring-purple-500/20'
+                      : 'bg-slate-950/40 border-slate-800 hover:bg-slate-950/80'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-purple-300 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      Gemini 3.7 Flash Thinking
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                      Recommended
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Uses extended chain-of-thought reasoning to systematically cross-reference engineering parameters (pressures, temperatures, metallurgy, area classifications) across disparate disciplines.
+                  </p>
+                </div>
+
+                {/* Model 2: Gemini 2.5 Pro */}
+                <div
+                  onClick={() => setSelectedAuditModel('gemini-2.5-pro')}
+                  className={`p-3.5 rounded-xl border cursor-pointer transition-all space-y-1.5 ${
+                    selectedAuditModel === 'gemini-2.5-pro'
+                      ? 'bg-purple-950/60 border-purple-500 ring-2 ring-purple-500/20'
+                      : 'bg-slate-950/40 border-slate-800 hover:bg-slate-950/80'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-blue-300">
+                      Gemini 2.5 Pro
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-400/20 text-blue-300 border border-blue-400/30">
+                      Deep Synthesis
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    High-capacity reasoning model ideal for complex multi-hundred clause mega-projects requiring exhaustive multi-turn cross-document harmonization.
+                  </p>
+                </div>
+
+                {/* Model 3: Gemini 3.5 Flash Lite */}
+                <div
+                  onClick={() => setSelectedAuditModel('gemini-3.5-flash-lite')}
+                  className={`p-3.5 rounded-xl border cursor-pointer transition-all space-y-1.5 ${
+                    selectedAuditModel === 'gemini-3.5-flash-lite'
+                      ? 'bg-purple-950/60 border-purple-500 ring-2 ring-purple-500/20'
+                      : 'bg-slate-950/40 border-slate-800 hover:bg-slate-950/80'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-emerald-300">
+                      Gemini 3.5 Flash Lite
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
+                      Fast Clustering
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    Ultra-fast, lowest-cost model designed for high-throughput semantic duplicate detection and lexical overlap screening.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* RFP Package Manager Executive Decision Guidance Card */}
+            {qualityAuditReport && (
+              <div className="bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white p-6 md:p-8 rounded-2xl border border-indigo-800/80 shadow-lg space-y-6">
+                <div className="flex items-start justify-between gap-4 border-b border-indigo-800/60 pb-4">
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center gap-2 text-xs font-extrabold uppercase tracking-wider text-indigo-300">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                      Executive Scope Audit Findings
+                    </div>
+                    <h3 className="text-xl font-extrabold text-slate-100">
+                      RFP Package Manager Decision Guidance & Harmonization
+                    </h3>
+                  </div>
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-900/80 text-indigo-200 border border-indigo-700/60 shrink-0">
+                    Audit ID: {qualityAuditReport.audit_id.slice(0, 8)}
+                  </span>
+                </div>
+
+                {/* Summary Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Executive Findings */}
+                  <div className="space-y-2 bg-slate-950/60 p-4 rounded-xl border border-indigo-900/50">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
+                      <FileCheck className="w-4 h-4 text-indigo-400" />
+                      Executive Scope Summary
+                    </h4>
+                    <p className="text-xs text-slate-200 leading-relaxed font-normal">
+                      {qualityAuditReport.executive_summary}
+                    </p>
+                  </div>
+
+                  {/* Decision Guidance */}
+                  <div className="space-y-2 bg-slate-950/60 p-4 rounded-xl border border-indigo-900/50">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                      <Lightbulb className="w-4 h-4 text-amber-400" />
+                      Manager Action Plan
+                    </h4>
+                    <p className="text-xs text-slate-200 leading-relaxed font-normal">
+                      {qualityAuditReport.manager_guidance}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Specific Category Summaries */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-indigo-800/60 text-xs">
+                  {/* Conflicts list */}
+                  <div className="space-y-2">
+                    <span className="font-bold text-rose-300 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                      <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                      Cross-Discipline Conflicts ({qualityAuditReport.category_summaries.cross_discipline_conflicts.length})
+                    </span>
+                    {qualityAuditReport.category_summaries.cross_discipline_conflicts.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 italic">No engineering contradictions detected.</p>
+                    ) : (
+                      <ul className="space-y-1.5 text-[11px] text-slate-300 list-disc list-inside">
+                        {qualityAuditReport.category_summaries.cross_discipline_conflicts.map((c, i) => (
+                          <li key={i} className="leading-snug">{c}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* Ambiguities list */}
+                  <div className="space-y-2">
+                    <span className="font-bold text-amber-300 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                      Ambiguous Wording ({qualityAuditReport.category_summaries.ambiguities.length})
+                    </span>
+                    {qualityAuditReport.category_summaries.ambiguities.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 italic">No subjective or vague wording detected.</p>
+                    ) : (
+                      <ul className="space-y-1.5 text-[11px] text-slate-300 list-disc list-inside">
+                        {qualityAuditReport.category_summaries.ambiguities.map((a, i) => (
+                          <li key={i} className="leading-snug">{a}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* Duplications list */}
+                  <div className="space-y-2">
+                    <span className="font-bold text-blue-300 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      Redundancies & Overlaps ({qualityAuditReport.category_summaries.duplications.length})
+                    </span>
+                    {qualityAuditReport.category_summaries.duplications.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 italic">No redundant clauses found.</p>
+                    ) : (
+                      <ul className="space-y-1.5 text-[11px] text-slate-300 list-disc list-inside">
+                        {qualityAuditReport.category_summaries.duplications.map((d, i) => (
+                          <li key={i} className="leading-snug">{d}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Interactive Filterable Clause Audit Matrix */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+              {/* Filter Tabs Bar */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900 flex items-center gap-2">
+                    <Filter className="w-4 h-4 text-purple-600" />
+                    Clause Quality Matrix & Highlight Flags
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Review and resolve highlighted issues directly. Toggle checkboxes to include or exclude clauses from the final RFP package.
+                  </p>
+                </div>
+
+                {/* Filter Buttons */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setAuditFilterTab('all')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      auditFilterTab === 'all'
+                        ? 'bg-slate-900 text-white shadow-sm'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    All Active ({activeItems.length})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAuditFilterTab('conflicts')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      auditFilterTab === 'conflicts'
+                        ? 'bg-rose-700 text-white shadow-sm'
+                        : 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200/60'
+                    }`}
+                  >
+                    <AlertTriangle className="w-3 h-3" />
+                    Conflicts ({conflictItems.length})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAuditFilterTab('ambiguities')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      auditFilterTab === 'ambiguities'
+                        ? 'bg-amber-600 text-white shadow-sm'
+                        : 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200/60'
+                    }`}
+                  >
+                    <AlertCircle className="w-3 h-3" />
+                    Ambiguities ({ambiguityItems.length})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAuditFilterTab('duplicates')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      auditFilterTab === 'duplicates'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/60'
+                    }`}
+                  >
+                    <Copy className="w-3 h-3" />
+                    Duplicates ({duplicateItems.length})
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAuditFilterTab('clean')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      auditFilterTab === 'clean'
+                        ? 'bg-emerald-700 text-white shadow-sm'
+                        : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/60'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3 h-3" />
+                    Clean ({cleanItems.length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Filtered Clause Cards List */}
+              {filteredList.length === 0 ? (
+                <div className="p-12 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  No requirement clauses match the selected filter tab.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredList.map((item) => {
+                    const isSelected = selectedItems[item.scoping_item_id] ?? true;
+                    const flags = flagsMap.get(item.scoping_item_id) || [];
+                    const hasConflict = flags.some((f) => f.issue_type === 'CrossDisciplineConflict');
+                    const hasAmbiguity = flags.some((f) => f.issue_type === 'Ambiguity');
+                    const hasDuplication = flags.some((f) => f.issue_type === 'Duplication');
+
+                    const borderStyle = hasConflict
+                      ? 'border-rose-300 bg-rose-50/20 hover:border-rose-400'
+                      : hasAmbiguity
+                      ? 'border-amber-300 bg-amber-50/20 hover:border-amber-400'
+                      : hasDuplication
+                      ? 'border-blue-300 bg-blue-50/20 hover:border-blue-400'
+                      : 'border-slate-200 bg-white hover:border-slate-300';
+
+                    return (
+                      <div
+                        key={item.scoping_item_id}
+                        className={`p-4 rounded-xl border text-xs transition-all space-y-3 ${borderStyle} ${
+                          !isSelected ? 'opacity-50 bg-slate-100/50' : 'shadow-sm'
+                        }`}
+                      >
+                        {/* Card Header & Controls */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            {/* Toggle selection */}
+                            <button
+                              type="button"
+                              onClick={() => toggleItem(item.scoping_item_id)}
+                              className="text-slate-700 hover:scale-110 transition-transform cursor-pointer"
+                              title={isSelected ? 'Included in final RFP (click to exclude)' : 'Excluded from RFP (click to include)'}
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-emerald-600" />
+                              ) : (
+                                <Square className="w-4 h-4 text-slate-400" />
+                              )}
+                            </button>
+
+                            <span className="font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
+                              {item.requirement_code || 'REQ'}
+                            </span>
+
+                            <span className="font-semibold text-slate-700 bg-slate-50 px-2 py-0.5 rounded border border-slate-200/60">
+                              {item.engineering_discipline}
+                            </span>
+
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              item.compliance_level === 'Mandatory'
+                                ? 'bg-rose-100 text-rose-800'
+                                : item.compliance_level === 'Recommended'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-blue-100 text-blue-800'
+                            }`}>
+                              {item.compliance_level}
+                            </span>
+
+                            {/* Highlight Flag Badges */}
+                            {hasConflict && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white flex items-center gap-1 shadow-xs">
+                                <AlertTriangle className="w-3 h-3" />
+                                Conflict
+                              </span>
+                            )}
+                            {hasAmbiguity && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white flex items-center gap-1 shadow-xs">
+                                <AlertCircle className="w-3 h-3" />
+                                Ambiguity
+                              </span>
+                            )}
+                            {hasDuplication && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-600 text-white flex items-center gap-1 shadow-xs">
+                                <Copy className="w-3 h-3" />
+                                Duplicate
+                              </span>
+                            )}
+                            {!hasConflict && !hasAmbiguity && !hasDuplication && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                                <CheckCheck className="w-3 h-3 text-emerald-600" />
+                                Verified Clean
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Match Score & Delete */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-semibold text-slate-500">
+                              Match: {(item.relevance_score * 100).toFixed(0)}%
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteItemTarget(item)}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-rose-100 transition-colors cursor-pointer"
+                              title="Delete requirement & log reason to Lessons Learned"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Requirement Statement */}
+                        <p className="font-normal text-slate-800 leading-relaxed pl-6">
+                          {item.requirement_text}
+                        </p>
+
+                        {/* Expanded Issue Drawers */}
+                        {flags.length > 0 && (
+                          <div className="pl-6 space-y-2 pt-1">
+                            {flags.map((flag) => {
+                              const isExpanded = expandedFlagIds[flag.flag_id] ?? true;
+                              const flagColor =
+                                flag.issue_type === 'CrossDisciplineConflict'
+                                  ? 'bg-rose-50 border-rose-200 text-rose-950'
+                                  : flag.issue_type === 'Ambiguity'
+                                  ? 'bg-amber-50 border-amber-200 text-amber-950'
+                                  : 'bg-blue-50 border-blue-200 text-blue-950';
+
+                              return (
+                                <div
+                                  key={flag.flag_id}
+                                  className={`p-3 rounded-xl border text-xs space-y-2 transition-all ${flagColor}`}
+                                >
+                                  <div
+                                    onClick={() => toggleFlagExpanded(flag.flag_id)}
+                                    className="flex items-center justify-between cursor-pointer"
+                                  >
+                                    <div className="flex items-center gap-2 font-bold">
+                                      {flag.issue_type === 'CrossDisciplineConflict' ? (
+                                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                                      ) : flag.issue_type === 'Ambiguity' ? (
+                                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                                      ) : (
+                                        <Copy className="w-4 h-4 text-blue-600 shrink-0" />
+                                      )}
+                                      <span>{flag.title}</span>
+                                      <span className="px-1.5 py-0.2 rounded text-[10px] uppercase font-mono font-bold bg-white/70 border border-current/20">
+                                        {flag.severity}
+                                      </span>
+                                    </div>
+                                    <button type="button" className="p-0.5 text-current opacity-70 hover:opacity-100">
+                                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                    </button>
+                                  </div>
+
+                                  {isExpanded && (
+                                    <div className="space-y-2 pt-1 border-t border-current/15 text-[11px]">
+                                      <p className="leading-relaxed opacity-90">{flag.description}</p>
+                                      {flag.conflicting_requirement_codes.length > 0 && (
+                                        <div className="flex items-center gap-1.5 font-mono">
+                                          <span className="font-bold">Conflicting Clauses:</span>
+                                          <span className="px-1.5 py-0.5 rounded bg-white/80 border border-current/20 font-bold">
+                                            {flag.conflicting_requirement_codes.join(', ')}
+                                          </span>
+                                        </div>
+                                      )}
+                                      <div className="p-2 rounded-lg bg-white/60 border border-current/20 space-y-1">
+                                        <span className="font-bold uppercase tracking-wider text-[10px] block opacity-80">
+                                          💡 Suggested Resolution for RFP Manager:
+                                        </span>
+                                        <p className="font-medium leading-relaxed">{flag.suggested_action}</p>
+                                      </div>
+
+                                      {/* Quick action buttons */}
+                                      <div className="flex items-center gap-2 pt-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleItem(item.scoping_item_id)}
+                                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                                            isSelected
+                                              ? 'bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300'
+                                              : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300'
+                                          }`}
+                                        >
+                                          {isSelected ? 'Exclude from RFP Package' : 'Re-Include in RFP Package'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setDeleteItemTarget(item);
+                                            setDeleteReason(`Audit Flag [${flag.issue_type}]: ${flag.title}`);
+                                          }}
+                                          className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white/80 hover:bg-white text-slate-700 border border-slate-300 cursor-pointer"
+                                        >
+                                          Remove & Log to Lessons Learned
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Finalize CTA */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="space-y-0.5 text-center sm:text-left">
+                <h4 className="font-extrabold text-sm text-slate-900">
+                  Scope Quality Audit Complete
+                </h4>
+                <p className="text-xs text-slate-500">
+                  {totalSelectedCount} validated clauses selected for the final tender package.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={handleExportMarkdown}
+                  className="py-2 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export Markdown RFP
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  className="py-2 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
+                  Export CSV Matrix
+                </button>
+                <button
+                  type="button"
+                  disabled={saveRFPMutation.isPending}
+                  onClick={() => saveRFPMutation.mutate(rfpPackage)}
+                  className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow transition-colors flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  {saveRFPMutation.isPending ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Database className="w-3.5 h-3.5" />
+                  )}
+                  {saveRFPMutation.isPending ? 'Saving...' : 'Save Audited Scope Package'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
 
       {/* ========================================================================= */}
       {/* MODAL: ADD / EDIT PROJECT (STEP 1)                                       */}

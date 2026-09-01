@@ -11,6 +11,10 @@ import {
   RFPPackage,
   RFPPackageSchema,
   ScopingRequirementItem,
+  ScopeAuditInput,
+  ScopeQualityAuditReport,
+  ScopeQualityAuditReportSchema,
+  RequirementQualityFlag,
   sortRequirementItems,
   normalizeEngineeringDiscipline,
   normalizeItemType,
@@ -26,6 +30,7 @@ const apiKey = process.env.GEMINI_API_KEY || '';
 export const DEFAULT_STAGE1_MODEL = process.env.GEMINI_STAGE1_MODEL || 'gemini-3.6-flash';
 export const DEFAULT_STAGE2_MODEL = process.env.GEMINI_STAGE2_MODEL || 'gemini-3.7-flash';
 export const DEFAULT_STAGE3_MODEL = process.env.GEMINI_STAGE3_MODEL || 'gemini-2.5-pro';
+export const DEFAULT_AUDIT_MODEL = process.env.GEMINI_AUDIT_MODEL || 'gemini-3.7-flash';
 
 export function getGeminiClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey });
@@ -1065,3 +1070,482 @@ Provide a structured, executive scope summary highlighting key technical focus a
   console.log(`✨ RFP Matching complete: Total tokens consumed: ${totalPipelineUsage.totalTokens.toLocaleString()}`);
   return RFPPackageSchema.parse(pkg);
 }
+
+const SCOPE_AUDIT_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    quality_score: { type: 'NUMBER' },
+    executive_summary: { type: 'STRING' },
+    manager_guidance: { type: 'STRING' },
+    conflict_count: { type: 'NUMBER' },
+    ambiguity_count: { type: 'NUMBER' },
+    duplication_count: { type: 'NUMBER' },
+    flags: {
+      type: 'ARRAY',
+      items: {
+        type: 'OBJECT',
+        properties: {
+          scoping_item_id: { type: 'STRING' },
+          issue_type: {
+            type: 'STRING',
+            enum: ['Duplication', 'Ambiguity', 'CrossDisciplineConflict'],
+          },
+          severity: {
+            type: 'STRING',
+            enum: ['Critical', 'Warning', 'Notice'],
+          },
+          title: { type: 'STRING' },
+          description: { type: 'STRING' },
+          conflicting_item_ids: {
+            type: 'ARRAY',
+            items: { type: 'STRING' },
+          },
+          conflicting_requirement_codes: {
+            type: 'ARRAY',
+            items: { type: 'STRING' },
+          },
+          suggested_action: { type: 'STRING' },
+        },
+        required: [
+          'scoping_item_id',
+          'issue_type',
+          'severity',
+          'title',
+          'description',
+          'suggested_action',
+        ],
+      },
+    },
+    suggested_exclusions: {
+      type: 'ARRAY',
+      items: { type: 'STRING' },
+    },
+    category_summaries: {
+      type: 'OBJECT',
+      properties: {
+        cross_discipline_conflicts: {
+          type: 'ARRAY',
+          items: { type: 'STRING' },
+        },
+        ambiguities: {
+          type: 'ARRAY',
+          items: { type: 'STRING' },
+        },
+        duplications: {
+          type: 'ARRAY',
+          items: { type: 'STRING' },
+        },
+      },
+      required: ['cross_discipline_conflicts', 'ambiguities', 'duplications'],
+    },
+  },
+  required: [
+    'quality_score',
+    'executive_summary',
+    'manager_guidance',
+    'flags',
+    'category_summaries',
+  ],
+};
+
+/**
+ * Deterministic Heuristic Quality & Conflict Analyzer
+ * Used as reliable fallback when offline or when LLM response is unavailable
+ */
+export function heuristicAuditScopeQualityAndConflicts(input: ScopeAuditInput): ScopeQualityAuditReport {
+  const items = input.selected_items || [];
+  const flags: RequirementQualityFlag[] = [];
+  const suggestedExclusions = new Set<string>();
+  const conflictSummaries: string[] = [];
+  const ambiguitySummaries: string[] = [];
+  const duplicationSummaries: string[] = [];
+
+  // Helper token extractor
+  const tokenize = (str: string) =>
+    str.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length > 3);
+
+  // 1. Duplication & Overlap Detection
+  for (let i = 0; i < items.length; i++) {
+    const itemA = items[i];
+    const tokensA = new Set(tokenize(itemA.requirement_text));
+    if (tokensA.size === 0) continue;
+
+    for (let j = i + 1; j < items.length; j++) {
+      const itemB = items[j];
+      const tokensB = tokenize(itemB.requirement_text);
+      if (tokensB.length === 0) continue;
+
+      let matchCount = 0;
+      for (const t of tokensB) {
+        if (tokensA.has(t)) matchCount++;
+      }
+      const unionSize = new Set([...tokensA, ...tokensB]).size;
+      const jaccard = unionSize > 0 ? matchCount / unionSize : 0;
+
+      const normA = itemA.requirement_text.trim().toLowerCase();
+      const normB = itemB.requirement_text.trim().toLowerCase();
+      const isDirectOverlap = normA === normB || normA.includes(normB) || normB.includes(normA);
+
+      if (jaccard > 0.60 || isDirectOverlap) {
+        const flagA: RequirementQualityFlag = {
+          flag_id: randomUUID(),
+          scoping_item_id: itemA.scoping_item_id,
+          issue_type: 'Duplication',
+          severity: 'Notice',
+          title: `Redundant Specification with [${itemB.requirement_code || 'REQ'}]`,
+          description: `Near-identical scope requirements detected between ${itemA.engineering_discipline} [${itemA.requirement_code || 'REQ'}] and ${itemB.engineering_discipline} [${itemB.requirement_code || 'REQ'}].`,
+          conflicting_item_ids: [itemB.scoping_item_id],
+          conflicting_requirement_codes: [itemB.requirement_code || 'REQ'],
+          suggested_action: `Consolidate clauses into a single authoritative specification to prevent redundant vendor deliverables.`,
+        };
+        const flagB: RequirementQualityFlag = {
+          flag_id: randomUUID(),
+          scoping_item_id: itemB.scoping_item_id,
+          issue_type: 'Duplication',
+          severity: 'Notice',
+          title: `Redundant Specification with [${itemA.requirement_code || 'REQ'}]`,
+          description: `Duplicate clause overlapping with ${itemA.engineering_discipline} [${itemA.requirement_code || 'REQ'}].`,
+          conflicting_item_ids: [itemA.scoping_item_id],
+          conflicting_requirement_codes: [itemA.requirement_code || 'REQ'],
+          suggested_action: `Consider excluding this duplicate from the final RFP package.`,
+        };
+
+        flags.push(flagA, flagB);
+        suggestedExclusions.add(itemB.scoping_item_id);
+        duplicationSummaries.push(
+          `Overlap between [${itemA.requirement_code || 'REQ'}] (${itemA.engineering_discipline}) and [${itemB.requirement_code || 'REQ'}] (${itemB.engineering_discipline})`
+        );
+      }
+    }
+  }
+
+  // 2. Ambiguity & Vagueness Scan
+  const ambiguousPatterns = [
+    { pattern: /\b(adequate(?:ly)?)\b/i, term: 'adequate', fix: 'Specify numerical thresholds or quantitative engineering metrics.' },
+    { pattern: /\b(proper(?:ly)?)\b/i, term: 'properly', fix: 'Replace with exact governing code, standard number, or design parameter.' },
+    { pattern: /\b(as necessary|as needed|as appropriate)\b/i, term: 'as necessary/needed', fix: 'Define the boundary condition or triggering criteria.' },
+    { pattern: /\b(suitable for)\b/i, term: 'suitable', fix: 'Provide exact service envelope (temperature, pressure, fluid chemistry).' },
+    { pattern: /\b(sufficient(?:ly)?)\b/i, term: 'sufficient', fix: 'State minimum capacity, margin percentage, or flow rate.' },
+    { pattern: /\b(good engineering practice|standard industry practice)\b/i, term: 'good/standard practice', fix: 'Cite specific applicable industry standards (e.g. ASME, API, IEEE).' },
+    { pattern: /\b(to the satisfaction of|best efforts)\b/i, term: 'subjective criteria', fix: 'Establish objective, verifiable factory acceptance test (FAT) criteria.' },
+  ];
+
+  for (const item of items) {
+    for (const amb of ambiguousPatterns) {
+      if (amb.pattern.test(item.requirement_text)) {
+        flags.push({
+          flag_id: randomUUID(),
+          scoping_item_id: item.scoping_item_id,
+          issue_type: 'Ambiguity',
+          severity: 'Warning',
+          title: `Ambiguous Phrasing: "${amb.term}"`,
+          description: `The clause contains subjective or unquantified term "${amb.term}" without verifiable acceptance criteria.`,
+          conflicting_item_ids: [],
+          conflicting_requirement_codes: [],
+          suggested_action: amb.fix,
+        });
+        ambiguitySummaries.push(
+          `[${item.requirement_code || 'REQ'}] contains non-enforceable term "${amb.term}". ${amb.fix}`
+        );
+        break; // 1 ambiguity flag per item to keep clean
+      }
+    }
+  }
+
+  // 3. Cross-Discipline Conflict Analysis
+  // Parameter extraction helpers
+  const extractPressures = (t: string) => {
+    const m = t.match(/(\d{3,5})\s*(?:psig|psi|barg|bar)/gi);
+    return m ? m.map((s) => parseInt(s.replace(/\D/g, ''), 10)).filter((n) => n > 100) : [];
+  };
+  const extractMetallurgy = (t: string) => {
+    const list: string[] = [];
+    if (/carbon\s*steel/i.test(t)) list.push('Carbon Steel');
+    if (/super\s*duplex|duplex\s*2507|2205/i.test(t)) list.push('Duplex/Super Duplex');
+    if (/316l?|stainless\s*steel/i.test(t)) list.push('Stainless Steel');
+    if (/inconel|hastelloy|nickel\s*alloy/i.test(t)) list.push('Nickel Alloy / Inconel');
+    return list;
+  };
+  const extractHazardous = (t: string) => {
+    if (/class\s*1\s*div\s*1|zone\s*0|zone\s*1/i.test(t)) return 'Class 1 Div 1 (High Hazard)';
+    if (/class\s*1\s*div\s*2|zone\s*2/i.test(t)) return 'Class 1 Div 2 (Moderate Hazard)';
+    if (/unclassified|non-hazardous|general\s*purpose/i.test(t)) return 'Unclassified / General Purpose';
+    return null;
+  };
+
+  for (let i = 0; i < items.length; i++) {
+    const itemA = items[i];
+    const pressA = extractPressures(itemA.requirement_text);
+    const metalA = extractMetallurgy(itemA.requirement_text);
+    const hazA = extractHazardous(itemA.requirement_text);
+
+    for (let j = i + 1; j < items.length; j++) {
+      const itemB = items[j];
+      if (itemA.engineering_discipline === itemB.engineering_discipline) continue; // cross-discipline only
+
+      const pressB = extractPressures(itemB.requirement_text);
+      const metalB = extractMetallurgy(itemB.requirement_text);
+      const hazB = extractHazardous(itemB.requirement_text);
+
+      // Pressure Conflict (e.g. Piping 1480 psig vs Mechanical 3200 psig)
+      if (pressA.length > 0 && pressB.length > 0) {
+        const maxA = Math.max(...pressA);
+        const maxB = Math.max(...pressB);
+        if (Math.abs(maxA - maxB) > 400 && Math.min(maxA, maxB) > 0) {
+          const flagA: RequirementQualityFlag = {
+            flag_id: randomUUID(),
+            scoping_item_id: itemA.scoping_item_id,
+            issue_type: 'CrossDisciplineConflict',
+            severity: 'Critical',
+            title: `Design Pressure Conflict with ${itemB.engineering_discipline} [${itemB.requirement_code || 'REQ'}]`,
+            description: `${itemA.engineering_discipline} specifies ${maxA} psig whereas ${itemB.engineering_discipline} specifies ${maxB} psig for connected equipment envelope.`,
+            conflicting_item_ids: [itemB.scoping_item_id],
+            conflicting_requirement_codes: [itemB.requirement_code || 'REQ'],
+            suggested_action: `Align design pressure rating between ${itemA.engineering_discipline} and ${itemB.engineering_discipline} to prevent piping/vessel flange rating mismatch.`,
+          };
+          const flagB: RequirementQualityFlag = {
+            flag_id: randomUUID(),
+            scoping_item_id: itemB.scoping_item_id,
+            issue_type: 'CrossDisciplineConflict',
+            severity: 'Critical',
+            title: `Design Pressure Conflict with ${itemA.engineering_discipline} [${itemA.requirement_code || 'REQ'}]`,
+            description: `${itemB.engineering_discipline} specifies ${maxB} psig whereas ${itemA.engineering_discipline} specifies ${maxA} psig.`,
+            conflicting_item_ids: [itemA.scoping_item_id],
+            conflicting_requirement_codes: [itemA.requirement_code || 'REQ'],
+            suggested_action: `Verify system design pressure across P&ID and mechanical datasheets before RFP release.`,
+          };
+          flags.push(flagA, flagB);
+          conflictSummaries.push(
+            `Pressure mismatch: ${itemA.engineering_discipline} (${maxA} psig) vs ${itemB.engineering_discipline} (${maxB} psig)`
+          );
+        }
+      }
+
+      // Metallurgy Conflict (e.g. Carbon Steel vs Super Duplex on wet sour service)
+      if (metalA.length > 0 && metalB.length > 0 && metalA[0] !== metalB[0]) {
+        if ((metalA.includes('Carbon Steel') && metalB.includes('Duplex/Super Duplex')) ||
+            (metalB.includes('Carbon Steel') && metalA.includes('Duplex/Super Duplex'))) {
+          flags.push({
+            flag_id: randomUUID(),
+            scoping_item_id: itemA.scoping_item_id,
+            issue_type: 'CrossDisciplineConflict',
+            severity: 'Critical',
+            title: `Metallurgy Compatibility Conflict with ${itemB.engineering_discipline} [${itemB.requirement_code || 'REQ'}]`,
+            description: `${itemA.engineering_discipline} specifies ${metalA.join(', ')} while ${itemB.engineering_discipline} requires ${metalB.join(', ')}. Galvanic or sour corrosion risk.`,
+            conflicting_item_ids: [itemB.scoping_item_id],
+            conflicting_requirement_codes: [itemB.requirement_code || 'REQ'],
+            suggested_action: `Harmonize piping and equipment metallurgy with Materials & Corrosion SME per NACE MR0175.`,
+          });
+          conflictSummaries.push(
+            `Material incompatibility between ${itemA.engineering_discipline} (${metalA.join('/')}) and ${itemB.engineering_discipline} (${metalB.join('/')})`
+          );
+        }
+      }
+
+      // Hazardous Area Conflict (e.g. Electrical unclassified vs I&C Class 1 Div 1)
+      if (hazA && hazB && hazA !== hazB) {
+        if ((hazA.includes('Unclassified') && hazB.includes('Hazard')) || (hazB.includes('Unclassified') && hazA.includes('Hazard'))) {
+          flags.push({
+            flag_id: randomUUID(),
+            scoping_item_id: itemA.scoping_item_id,
+            issue_type: 'CrossDisciplineConflict',
+            severity: 'Critical',
+            title: `Hazardous Area Rating Inconsistency with ${itemB.engineering_discipline}`,
+            description: `${itemA.engineering_discipline} references ${hazA} whereas ${itemB.engineering_discipline} specifies ${hazB}.`,
+            conflicting_item_ids: [itemB.scoping_item_id],
+            conflicting_requirement_codes: [itemB.requirement_code || 'REQ'],
+            suggested_action: `Cross-check Electrical Area Classification drawings (API RP 500/505) and standardize instrument ingress and explosion-proof enclosures.`,
+          });
+          conflictSummaries.push(
+            `Area classification clash: ${itemA.engineering_discipline} (${hazA}) vs ${itemB.engineering_discipline} (${hazB})`
+          );
+        }
+      }
+    }
+  }
+
+  // Deduplicate and group flags
+  const conflictCount = flags.filter((f) => f.issue_type === 'CrossDisciplineConflict').length;
+  const ambiguityCount = flags.filter((f) => f.issue_type === 'Ambiguity').length;
+  const duplicationCount = flags.filter((f) => f.issue_type === 'Duplication').length;
+
+  // Compute Quality Health Score (0-100)
+  let score = 100;
+  score -= conflictCount * 8;
+  score -= ambiguityCount * 4;
+  score -= duplicationCount * 3;
+  if (items.length === 0) score = 100;
+  score = Math.max(25, Math.min(100, score));
+
+  // Executive Summary & Package Manager Guidance
+  const executiveSummary = items.length === 0
+    ? `No active requirements selected for quality scan.`
+    : `Scanned ${items.length} active requirements for ${input.project_name} (${input.facility_type}). Identified ${conflictCount} cross-discipline conflicts, ${ambiguityCount} ambiguous clauses, and ${duplicationCount} duplicate requirements. Overall Scope Health Score is ${score}/100.`;
+
+  const managerGuidance = conflictCount > 0
+    ? `Action Required: Prioritize resolving the ${conflictCount} critical cross-discipline conflicts before issuing RFP to avoid contractor change orders and engineering rework. Review highlighted clauses and exclude redundant duplicate specifications.`
+    : ambiguityCount > 0
+    ? `Recommendation: Review the ${ambiguityCount} ambiguous clauses to replace subjective wording with explicit numerical tolerances and referenced codes before finalizing the tender package.`
+    : `Scope package is in excellent condition. No critical cross-discipline conflicts or major ambiguities detected. Ready for vendor RFP release.`;
+
+  return {
+    audit_id: randomUUID(),
+    package_id: input.package_id,
+    project_name: input.project_name,
+    project_code: input.project_code,
+    quality_score: score,
+    executive_summary: executiveSummary,
+    manager_guidance: managerGuidance,
+    conflict_count: conflictCount,
+    ambiguity_count: ambiguityCount,
+    duplication_count: duplicationCount,
+    flags,
+    suggested_exclusions: Array.from(suggestedExclusions),
+    category_summaries: {
+      cross_discipline_conflicts: Array.from(new Set(conflictSummaries)),
+      ambiguities: Array.from(new Set(ambiguitySummaries)),
+      duplications: Array.from(new Set(duplicationSummaries)),
+    },
+    scanned_at: new Date().toISOString(),
+    model_used: input.model || DEFAULT_AUDIT_MODEL || 'gemini-3.7-flash',
+    token_usage: {
+      promptTokens: 0,
+      candidateTokens: 0,
+      thoughtTokens: 0,
+      totalTokens: 0,
+      model: 'Heuristic Rule Engine (Fallback)',
+    },
+  };
+}
+
+/**
+ * Stage 4: AI Requirement Quality, Ambiguity & Cross-Discipline Conflict Scanner
+ * Uses Gemini 3.7 Flash with Thinking Mode (or Gemini 2.5 Pro) to analyze active RFP requirements
+ */
+export async function auditScopeQualityAndConflicts(input: ScopeAuditInput): Promise<ScopeQualityAuditReport> {
+  const items = input.selected_items || [];
+  if (items.length === 0) {
+    return heuristicAuditScopeQualityAndConflicts(input);
+  }
+
+  console.log(`🛡️ Running Scope Quality & Conflict Audit on ${items.length} requirements for "${input.project_name}"...`);
+
+  const modelToUse = input.model || DEFAULT_AUDIT_MODEL || 'gemini-3.7-flash';
+  const modelsToTry = [
+    modelToUse,
+    'gemini-3.7-flash',
+    'gemini-2.5-pro',
+    'gemini-3.6-flash',
+    'gemini-2.5-flash',
+  ].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
+
+  const auditPrompt = `You are a Principal Capital Projects Quality Assurance Lead, Systems Engineering Manager, and EPC Contract Auditor.
+Perform a rigorous multi-discipline quality and conflict audit on the following ${items.length} selected RFP requirements for capital project "${input.project_name}".
+
+PROJECT DETAILS:
+- Facility Type: ${input.facility_type}
+- Operating Envelope: ${input.operating_conditions || 'Standard'}
+- Project Scope: ${input.scope_description}
+
+SELECTED REQUIREMENTS TO SCAN:
+${items.map((it, idx) => `${idx + 1}. [Scoping Item ID: ${it.scoping_item_id}] [Code: ${it.requirement_code || 'REQ'}] [Discipline: ${it.engineering_discipline}] [Compliance: ${it.compliance_level}]
+Text: ${it.requirement_text}
+Category/Notes: ${it.custom_notes || 'N/A'}`).join('\n\n')}
+
+AUDIT OBJECTIVES:
+1. DUPLICATION: Identify duplicate, near-identical, or redundant requirements across disciplines or from duplicate source documents.
+2. AMBIGUITY: Detect vague phrases ("adequate", "properly sized", "as required", "good practice"), non-enforceable criteria, or undefined boundaries that leave the EPC contractor with open-ended interpretation.
+3. CROSS-DISCIPLINE CONFLICT: Detect engineering contradictions between disciplines (e.g. Mechanical vs Piping design pressures/temperatures, Electrical hazardous area vs I&C ratings, Process metallurgy vs Piping specs, HSE setbacks vs Civil foundations).
+4. SCOPE HEALTH SCORE: Calculate an overall quality score from 0 (critical flaws) to 100 (clean, robust RFP package).
+5. EXECUTIVE SUMMARY & RFP PACKAGE MANAGER GUIDANCE: Provide a clear text overview and actionable decision guidance on what to include, modify, or exclude in the final package.
+6. HIGHLIGHT FLAGS: Attach a flag to each affected requirement with scoping_item_id, issue_type ('Duplication', 'Ambiguity', 'CrossDisciplineConflict'), severity ('Critical', 'Warning', 'Notice'), title, description, and suggested_action.
+`;
+
+  const ai = getGeminiClient();
+
+  for (const m of modelsToTry) {
+    try {
+      const config: any = {
+        systemInstruction: 'Perform rigorous EPC engineering scope quality audit, detect cross-discipline conflicts, ambiguous phrasing, and duplicate clauses, and output structured JSON.',
+        responseMimeType: 'application/json',
+        responseSchema: SCOPE_AUDIT_RESPONSE_SCHEMA,
+        temperature: 0.1,
+      };
+
+      if (m.includes('3.7') || m.includes('2.5') || m.includes('thinking')) {
+        config.thinkingConfig = { thinkingBudget: 2048 };
+      }
+
+      const response = await ai.models.generateContent({
+        model: m,
+        contents: auditPrompt,
+        config,
+      });
+
+      const tokenUsage = extractUsageMetadata(response, m);
+      const parsed = JSON.parse(response.text || '{}');
+
+      if (parsed.quality_score !== undefined && Array.isArray(parsed.flags)) {
+        console.log(`✅ Quality Audit complete with ${m}: Score=${parsed.quality_score}%, Flags=${parsed.flags.length} (${tokenUsage.totalTokens} tokens).`);
+
+        // Format and validate flags
+        const formattedFlags: RequirementQualityFlag[] = parsed.flags.map((f: any) => ({
+          flag_id: randomUUID(),
+          scoping_item_id: f.scoping_item_id || items[0].scoping_item_id,
+          issue_type: (f.issue_type === 'CrossDisciplineConflict' || f.issue_type === 'Ambiguity' || f.issue_type === 'Duplication')
+            ? f.issue_type
+            : 'Ambiguity',
+          severity: (f.severity === 'Critical' || f.severity === 'Warning' || f.severity === 'Notice')
+            ? f.severity
+            : 'Warning',
+          title: f.title || 'Quality Notice',
+          description: f.description || 'Quality issue detected.',
+          conflicting_item_ids: Array.isArray(f.conflicting_item_ids) ? f.conflicting_item_ids : [],
+          conflicting_requirement_codes: Array.isArray(f.conflicting_requirement_codes) ? f.conflicting_requirement_codes : [],
+          suggested_action: f.suggested_action || 'Review requirement with engineering SME.',
+        }));
+
+        const conflictCount = formattedFlags.filter((f) => f.issue_type === 'CrossDisciplineConflict').length;
+        const ambiguityCount = formattedFlags.filter((f) => f.issue_type === 'Ambiguity').length;
+        const duplicationCount = formattedFlags.filter((f) => f.issue_type === 'Duplication').length;
+
+        const report: ScopeQualityAuditReport = {
+          audit_id: randomUUID(),
+          package_id: input.package_id,
+          project_name: input.project_name,
+          project_code: input.project_code,
+          quality_score: Math.max(0, Math.min(100, Number(parsed.quality_score) || 85)),
+          executive_summary: parsed.executive_summary || `Quality audit scanned ${items.length} requirements.`,
+          manager_guidance: parsed.manager_guidance || `Review flagged items before tender issuance.`,
+          conflict_count: conflictCount,
+          ambiguity_count: ambiguityCount,
+          duplication_count: duplicationCount,
+          flags: formattedFlags,
+          suggested_exclusions: Array.isArray(parsed.suggested_exclusions) ? parsed.suggested_exclusions : [],
+          category_summaries: {
+            cross_discipline_conflicts: Array.isArray(parsed.category_summaries?.cross_discipline_conflicts)
+              ? parsed.category_summaries.cross_discipline_conflicts
+              : [],
+            ambiguities: Array.isArray(parsed.category_summaries?.ambiguities)
+              ? parsed.category_summaries.ambiguities
+              : [],
+            duplications: Array.isArray(parsed.category_summaries?.duplications)
+              ? parsed.category_summaries.duplications
+              : [],
+          },
+          scanned_at: new Date().toISOString(),
+          model_used: m,
+          token_usage: tokenUsage,
+        };
+
+        return ScopeQualityAuditReportSchema.parse(report);
+      }
+    } catch (err: any) {
+      console.warn(`Quality Audit attempt with ${m} failed: ${err.message}. Trying next fallback...`);
+    }
+  }
+
+  console.warn('Falling back to deterministic heuristic quality analyzer...');
+  return heuristicAuditScopeQualityAndConflicts(input);
+}
+

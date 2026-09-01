@@ -8,6 +8,8 @@ import {
   ProjectScopeRecord,
   ProjectCreateInput,
   ScopingRequirementItem,
+  ScopeAuditInput,
+  ScopeQualityAuditReport,
   RFPPackage,
   FeedbackEntry,
   FeedbackEntryCreate,
@@ -296,6 +298,15 @@ export async function saveRFPPackage(pkg: RFPPackage) {
     body: JSON.stringify(pkg),
   });
   return parseResponseJson(res, 'Failed to save RFP package');
+}
+
+export async function auditScopeRequirements(input: ScopeAuditInput): Promise<ScopeQualityAuditReport> {
+  const res = await fetch(`${API_BASE}/scoping/audit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseResponseJson(res, 'Failed to audit scope requirements');
 }
 
 export async function fetchFeedbackLessons(): Promise<FeedbackEntry[]> {

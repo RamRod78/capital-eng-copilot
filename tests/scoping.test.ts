@@ -5,9 +5,13 @@ import {
   ProjectScopeRecordSchema,
   ProjectCreateInputSchema,
   FeedbackEntryCreateSchema,
+  RequirementQualityFlagSchema,
+  ScopeQualityAuditReportSchema,
+  ScopeAuditInputSchema,
   sortRequirementItems,
   groupRequirementsByDiscipline,
 } from '../src/shared/schemas.js';
+import { heuristicAuditScopeQualityAndConflicts } from '../src/server/services/gemini.js';
 
 describe('Project Scoping & RFP Models', () => {
   it('validates project creation and record schemas for Step 1 (Configure Projects)', () => {
@@ -259,5 +263,127 @@ describe('Project Scoping & RFP Models', () => {
     const parsed = RFPPackageSchema.parse(savePayload);
     expect(parsed.mandatory_requirements[0].requirement_code).toBe('REQ-001');
     expect(parsed.mandatory_requirements[0].is_selected).toBe(true);
+  });
+
+  describe('Step 4: Quality, Ambiguity & Cross-Discipline Conflict Audit', () => {
+    it('validates RequirementQualityFlagSchema and ScopeQualityAuditReportSchema', () => {
+      const flag = {
+        flag_id: '123e4567-e89b-12d3-a456-426614174001',
+        scoping_item_id: '223e4567-e89b-12d3-a456-426614174002',
+        issue_type: 'CrossDisciplineConflict' as const,
+        severity: 'Critical' as const,
+        title: 'Design Pressure Conflict with Piping [REQ-PIP-001]',
+        description: 'Mechanical specifies 1480 psig while Piping specifies 3200 psig.',
+        conflicting_item_ids: ['323e4567-e89b-12d3-a456-426614174003'],
+        conflicting_requirement_codes: ['REQ-PIP-001'],
+        suggested_action: 'Harmonize flange rating to ASME Class 900.',
+      };
+
+      const parsedFlag = RequirementQualityFlagSchema.parse(flag);
+      expect(parsedFlag.issue_type).toBe('CrossDisciplineConflict');
+      expect(parsedFlag.severity).toBe('Critical');
+      expect(parsedFlag.conflicting_requirement_codes).toContain('REQ-PIP-001');
+
+      const auditReport = {
+        audit_id: '123e4567-e89b-12d3-a456-426614174099',
+        package_id: '123e4567-e89b-12d3-a456-426614174000',
+        project_name: 'Gulf Coast NGL Plant',
+        quality_score: 84,
+        executive_summary: 'Scanned 15 requirements. 1 conflict and 2 ambiguities detected.',
+        manager_guidance: 'Action required: align Mechanical and Piping design pressures before tender release.',
+        conflict_count: 1,
+        ambiguity_count: 2,
+        duplication_count: 0,
+        flags: [parsedFlag],
+        suggested_exclusions: [],
+        category_summaries: {
+          cross_discipline_conflicts: ['Mechanical (1480 psig) vs Piping (3200 psig)'],
+          ambiguities: ['[REQ-ELE-002] contains vague term "adequate"'],
+          duplications: [],
+        },
+        scanned_at: new Date().toISOString(),
+        model_used: 'gemini-3.7-flash',
+      };
+
+      const parsedReport = ScopeQualityAuditReportSchema.parse(auditReport);
+      expect(parsedReport.quality_score).toBe(84);
+      expect(parsedReport.flags).toHaveLength(1);
+      expect(parsedReport.conflict_count).toBe(1);
+    });
+
+    it('runs heuristic quality audit and flags cross-discipline pressure conflict and ambiguous phrasing', () => {
+      const items = [
+        {
+          scoping_item_id: '123e4567-e89b-12d3-a456-426614174001',
+          requirement_code: 'REQ-MEC-001',
+          requirement_text: 'Feed gas inlet separator vessel design pressure shall be 1480 psig minimum.',
+          item_type: 'Requirement' as const,
+          engineering_discipline: 'Mechanical' as const,
+          compliance_level: 'Mandatory' as const,
+          relevance_score: 0.98,
+          is_selected: true,
+        },
+        {
+          scoping_item_id: '123e4567-e89b-12d3-a456-426614174002',
+          requirement_code: 'REQ-PIP-001',
+          requirement_text: 'Inlet piping from header shall be designed for 3200 psig design pressure.',
+          item_type: 'Requirement' as const,
+          engineering_discipline: 'Piping' as const,
+          compliance_level: 'Mandatory' as const,
+          relevance_score: 0.95,
+          is_selected: true,
+        },
+        {
+          scoping_item_id: '123e4567-e89b-12d3-a456-426614174003',
+          requirement_code: 'REQ-ELE-001',
+          requirement_text: 'Contractor shall provide adequate lighting fixtures for equipment skid.',
+          item_type: 'Requirement' as const,
+          engineering_discipline: 'Electrical' as const,
+          compliance_level: 'Mandatory' as const,
+          relevance_score: 0.88,
+          is_selected: true,
+        },
+        {
+          scoping_item_id: '123e4567-e89b-12d3-a456-426614174004',
+          requirement_code: 'REQ-ELE-002',
+          requirement_text: 'Contractor shall provide adequate lighting fixtures for equipment skid.',
+          item_type: 'Requirement' as const,
+          engineering_discipline: 'Electrical' as const,
+          compliance_level: 'Mandatory' as const,
+          relevance_score: 0.88,
+          is_selected: true,
+        },
+      ];
+
+      const input = {
+        project_name: 'Permian Gas Plant',
+        facility_type: 'Gas Plant',
+        scope_description: 'Cryogenic unit',
+        selected_items: items,
+      };
+
+      const report = heuristicAuditScopeQualityAndConflicts(input);
+
+      // Check conflict detection
+      expect(report.conflict_count).toBeGreaterThanOrEqual(1);
+      const conflictFlag = report.flags.find((f) => f.issue_type === 'CrossDisciplineConflict');
+      expect(conflictFlag).toBeDefined();
+      expect(conflictFlag?.severity).toBe('Critical');
+      expect(conflictFlag?.title).toContain('Pressure');
+
+      // Check ambiguity detection
+      const ambFlag = report.flags.find((f) => f.issue_type === 'Ambiguity');
+      expect(ambFlag).toBeDefined();
+      expect(ambFlag?.title).toContain('adequate');
+
+      // Check duplicate detection
+      const dupFlag = report.flags.find((f) => f.issue_type === 'Duplication');
+      expect(dupFlag).toBeDefined();
+
+      // Check quality score and guidance
+      expect(report.quality_score).toBeLessThan(100);
+      expect(report.manager_guidance).toContain('Action Required');
+      expect(report.executive_summary).toContain('Permian Gas Plant');
+    });
   });
 });

@@ -424,6 +424,56 @@ export const ProjectScopeInputSchema = z.object({
 });
 export type ProjectScopeInput = z.infer<typeof ProjectScopeInputSchema>;
 
+export const QualityIssueTypeSchema = z.enum(['Duplication', 'Ambiguity', 'CrossDisciplineConflict']);
+export type QualityIssueType = z.infer<typeof QualityIssueTypeSchema>;
+
+export const QualityFlagSeveritySchema = z.enum(['Critical', 'Warning', 'Notice']);
+export type QualityFlagSeverity = z.infer<typeof QualityFlagSeveritySchema>;
+
+export const RequirementQualityFlagSchema = z.object({
+  flag_id: z.string().uuid(),
+  scoping_item_id: z.string().uuid(),
+  issue_type: QualityIssueTypeSchema,
+  severity: QualityFlagSeveritySchema,
+  title: z.string(),
+  description: z.string(),
+  conflicting_item_ids: z.array(z.string().uuid()).default([]),
+  conflicting_requirement_codes: z.array(z.string()).default([]),
+  suggested_action: z.string(),
+});
+export type RequirementQualityFlag = z.infer<typeof RequirementQualityFlagSchema>;
+
+export const CategoryQualitySummariesSchema = z.object({
+  cross_discipline_conflicts: z.array(z.string()).default([]),
+  ambiguities: z.array(z.string()).default([]),
+  duplications: z.array(z.string()).default([]),
+});
+export type CategoryQualitySummaries = z.infer<typeof CategoryQualitySummariesSchema>;
+
+export const ScopeQualityAuditReportSchema = z.object({
+  audit_id: z.string().uuid(),
+  package_id: z.string().uuid().optional(),
+  project_name: z.string(),
+  project_code: z.string().nullable().optional(),
+  quality_score: z.number().min(0).max(100),
+  executive_summary: z.string(),
+  manager_guidance: z.string(),
+  conflict_count: z.number().default(0),
+  ambiguity_count: z.number().default(0),
+  duplication_count: z.number().default(0),
+  flags: z.array(RequirementQualityFlagSchema).default([]),
+  suggested_exclusions: z.array(z.string().uuid()).default([]),
+  category_summaries: CategoryQualitySummariesSchema.default({
+    cross_discipline_conflicts: [],
+    ambiguities: [],
+    duplications: [],
+  }),
+  scanned_at: z.string(),
+  model_used: z.string().default('gemini-3.7-flash'),
+  token_usage: StageTokenUsageSchema.optional(),
+});
+export type ScopeQualityAuditReport = z.infer<typeof ScopeQualityAuditReportSchema>;
+
 export const ScopingRequirementItemSchema = z.object({
   scoping_item_id: z.string().uuid(),
   extraction_id: z.string().uuid().nullable().optional(),
@@ -435,8 +485,21 @@ export const ScopingRequirementItemSchema = z.object({
   relevance_score: z.number().default(1.0),
   is_selected: z.boolean().default(true),
   custom_notes: z.string().nullable().optional(),
+  quality_flags: z.array(RequirementQualityFlagSchema).default([]).optional(),
 });
 export type ScopingRequirementItem = z.infer<typeof ScopingRequirementItemSchema>;
+
+export const ScopeAuditInputSchema = z.object({
+  package_id: z.string().uuid().optional(),
+  project_name: z.string(),
+  project_code: z.string().nullable().optional(),
+  facility_type: z.string(),
+  operating_conditions: z.string().nullable().optional(),
+  scope_description: z.string(),
+  selected_items: z.array(ScopingRequirementItemSchema),
+  model: z.string().optional(),
+});
+export type ScopeAuditInput = z.infer<typeof ScopeAuditInputSchema>;
 
 export const RFPPackageSchema = z.object({
   package_id: z.string().uuid(),
@@ -450,6 +513,7 @@ export const RFPPackageSchema = z.object({
   created_at: z.string().optional(),
   generated_by: z.string().default('Capital Engineering Copilot Agent'),
   token_usage: PipelineTokenUsageSchema.optional(),
+  quality_audit: ScopeQualityAuditReportSchema.optional(),
 });
 export type RFPPackage = z.infer<typeof RFPPackageSchema>;
 

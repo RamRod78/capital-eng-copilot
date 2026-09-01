@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { db, pool } from '../db/index.js';
 import { projectScopes, scopingItems } from '../db/schema.js';
-import { getEmbedding, getEmbeddingWithUsage, matchAndEvaluateScopeRequirements } from '../services/gemini.js';
+import { getEmbedding, getEmbeddingWithUsage, matchAndEvaluateScopeRequirements, auditScopeQualityAndConflicts } from '../services/gemini.js';
 import { randomUUID } from 'crypto';
 import { eq, desc } from 'drizzle-orm';
-import { sortRequirementItems } from '../../shared/schemas.js';
+import { sortRequirementItems, ScopeAuditInputSchema } from '../../shared/schemas.js';
 
 export const scopingRouter = new Hono();
 
@@ -436,3 +436,18 @@ scopingRouter.post('/save', async (c) => {
     return c.json({ error: err.message || 'Failed to save scope package' }, 500);
   }
 });
+
+// 8. Quality, Ambiguity & Cross-Discipline Conflict Audit (Step 4)
+scopingRouter.post('/audit', async (c) => {
+  try {
+    const rawBody = await c.req.json();
+    const auditInput = ScopeAuditInputSchema.parse(rawBody);
+
+    const report = await auditScopeQualityAndConflicts(auditInput);
+    return c.json(report);
+  } catch (err: any) {
+    console.error('Error running scope quality audit:', err);
+    return c.json({ error: err.message || 'Scope quality audit failed' }, 500);
+  }
+});
+
