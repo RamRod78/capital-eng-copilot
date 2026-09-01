@@ -15,6 +15,8 @@ adminRouter.get('/counts', async (c) => {
     const scopingItems = await client.query('SELECT count(*)::int as count FROM scoping_items;');
     const lessons = await client.query('SELECT count(*)::int as count FROM feedback_lessons;');
     const flags = await client.query('SELECT count(*)::int as count FROM document_revision_flags;');
+    const kgNodes = await client.query('SELECT count(*)::int as count FROM kg_nodes;');
+    const kgEdges = await client.query('SELECT count(*)::int as count FROM kg_edges;');
 
     return c.json({
       documents: docs.rows[0]?.count || 0,
@@ -25,6 +27,8 @@ adminRouter.get('/counts', async (c) => {
       scoping_items: scopingItems.rows[0]?.count || 0,
       feedback_lessons: lessons.rows[0]?.count || 0,
       document_revision_flags: flags.rows[0]?.count || 0,
+      kg_nodes: kgNodes.rows[0]?.count || 0,
+      kg_edges: kgEdges.rows[0]?.count || 0,
       total:
         (docs.rows[0]?.count || 0) +
         (extractions.rows[0]?.count || 0) +
@@ -32,7 +36,9 @@ adminRouter.get('/counts', async (c) => {
         (scopes.rows[0]?.count || 0) +
         (scopingItems.rows[0]?.count || 0) +
         (lessons.rows[0]?.count || 0) +
-        (flags.rows[0]?.count || 0),
+        (flags.rows[0]?.count || 0) +
+        (kgNodes.rows[0]?.count || 0) +
+        (kgEdges.rows[0]?.count || 0),
     });
   } catch (err: any) {
     return c.json({ error: err.message || 'Failed to fetch table counts' }, 500);
@@ -52,6 +58,8 @@ adminRouter.post('/purge', async (c) => {
     if (target === 'all') {
       await client.query(`
         TRUNCATE TABLE 
+          kg_edges,
+          kg_nodes,
           requirement_embeddings, 
           scoping_items, 
           feedback_lessons, 
@@ -62,19 +70,21 @@ adminRouter.post('/purge', async (c) => {
         CASCADE;
       `);
       await client.query('COMMIT');
-      return c.json({ success: true, message: 'All database records successfully purged.' });
+      return c.json({ success: true, message: 'All database records (including Knowledge Graph) successfully purged.' });
     }
 
     if (target === 'extractions') {
       await client.query(`
         TRUNCATE TABLE 
+          kg_edges,
+          kg_nodes,
           requirement_embeddings, 
           extractions, 
           documents 
         CASCADE;
       `);
       await client.query('COMMIT');
-      return c.json({ success: true, message: 'Engineering specifications, extractions, and embeddings purged.' });
+      return c.json({ success: true, message: 'Engineering specifications, extractions, and Knowledge Graph purged.' });
     }
 
     if (target === 'scopes' || target === 'projects') {

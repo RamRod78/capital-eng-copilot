@@ -15,6 +15,7 @@ import { feedbackRouter } from './routes/feedback.js';
 import { searchRouter } from './routes/search.js';
 import { documentsRouter } from './routes/documents.js';
 import { adminRouter } from './routes/admin.js';
+import { kgRouter } from './routes/kg.js';
 import { initDatabase } from './db/init.js';
 
 dotenv.config();
@@ -38,6 +39,7 @@ app.route('/api/extractions', extractionsRouter);
 app.route('/api/scoping', scopingRouter);
 app.route('/api/feedback', feedbackRouter);
 app.route('/api/search', searchRouter);
+app.route('/api/kg', kgRouter);
 app.route('/api/admin', adminRouter);
 
 // Healthcheck

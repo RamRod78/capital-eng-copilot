@@ -8,9 +8,15 @@ import {
   FileCheck,
   Tag,
   FileText,
+  Share2,
+  BookOpen,
+  Settings2,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
-import { searchSimilarRequirements } from '../api/client.js';
-import { SearchResult, EngineeringDisciplineValues } from '@shared/schemas';
+import { searchSimilarRequirements, queryGraphRAG } from '../api/client.js';
+import { SearchResult, EngineeringDisciplineValues, GraphRAGQueryResponse } from '@shared/schemas';
 
 export default function KnowledgeSearch() {
   const [query, setQuery] = useState('Centrifugal pumps shall comply with API 610');
@@ -19,15 +25,33 @@ export default function KnowledgeSearch() {
   const [topK, setTopK] = useState(8);
 
   const [results, setResults] = useState<SearchResult[] | null>(null);
+  const [graphContext, setGraphContext] = useState<GraphRAGQueryResponse | null>(null);
+  const [showGraphDetails, setShowGraphDetails] = useState<boolean>(true);
+
+  const graphRAGMutation = useMutation({
+    mutationFn: () =>
+      queryGraphRAG({
+        query,
+        disciplines: discipline === 'All' ? undefined : [discipline],
+        max_hops: 2,
+        top_k_seeds: 4,
+      }),
+    onSuccess: (data) => {
+      setGraphContext(data);
+    },
+  });
 
   const searchMutation = useMutation({
-    mutationFn: () =>
-      searchSimilarRequirements({
+    mutationFn: async () => {
+      // Trigger GraphRAG in parallel
+      graphRAGMutation.mutate();
+      return searchSimilarRequirements({
         query,
         discipline: discipline === 'All' ? undefined : discipline,
         item_type: itemType === 'All' ? undefined : itemType,
         top_k: topK,
-      }),
+      });
+    },
     onSuccess: (data) => {
       setResults(data);
     },
@@ -130,6 +154,62 @@ export default function KnowledgeSearch() {
           )}
         </button>
       </form>
+
+      {/* GraphRAG Enriched Context Card */}
+      {graphContext && (graphContext.connected_standards.length > 0 || graphContext.connected_equipment.length > 0) && (
+        <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950 text-white p-5 rounded-2xl border border-slate-800 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-brand-600/30 rounded-lg border border-brand-500/40 text-brand-300">
+                <Share2 className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                  Knowledge Graph Context & Connected Dependencies
+                </h3>
+                <p className="text-[11px] text-slate-400">Multi-hop relational subgraph synthesized by Gemini</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowGraphDetails(!showGraphDetails)}
+              className="text-xs text-slate-400 hover:text-white flex items-center gap-1 font-medium"
+            >
+              {showGraphDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {showGraphDetails && (
+            <div className="space-y-3 pt-2 border-t border-slate-800/80">
+              {/* Context Tags */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {graphContext.connected_standards.map((std) => (
+                  <span key={std} className="px-2.5 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono font-bold flex items-center gap-1.5">
+                    <BookOpen className="w-3 h-3" />
+                    {std}
+                  </span>
+                ))}
+                {graphContext.connected_equipment.map((eq) => (
+                  <span key={eq} className="px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1.5">
+                    <Settings2 className="w-3 h-3" />
+                    {eq}
+                  </span>
+                ))}
+                {graphContext.governing_disciplines.map((disc) => (
+                  <span key={disc} className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-medium">
+                    {disc}
+                  </span>
+                ))}
+              </div>
+
+              {/* AI Graph Synthesis Brief */}
+              <p className="text-xs text-slate-300 bg-slate-950/60 p-3.5 rounded-xl border border-slate-800 leading-relaxed">
+                {graphContext.summary}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Search Results */}
       {results && (

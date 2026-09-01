@@ -6,6 +6,7 @@ import {
   jsonb,
   timestamp,
   doublePrecision,
+  integer,
   boolean,
   customType,
 } from 'drizzle-orm/pg-core';
@@ -136,3 +137,35 @@ export const documentRevisionFlags = pgTable('document_revision_flags', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   resolvedAt: timestamp('resolved_at', { withTimezone: true }),
 });
+
+// Table: kg_nodes (Knowledge Graph Nodes / Entities)
+export const kgNodes = pgTable('kg_nodes', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  entityType: varchar('entity_type', { length: 50 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  label: varchar('label', { length: 255 }).notNull(),
+  description: text('description'),
+  discipline: varchar('discipline', { length: 100 }),
+  sourceDocumentId: uuid('source_document_id').references(() => documents.id, { onDelete: 'set null' }),
+  extractionId: uuid('extraction_id').references(() => extractions.id, { onDelete: 'set null' }),
+  properties: jsonb('properties').default({}),
+  embedding: vector('embedding'),
+  degreeCount: integer('degree_count').default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+});
+
+// Table: kg_edges (Knowledge Graph Relationships)
+export const kgEdges = pgTable('kg_edges', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  sourceNodeId: uuid('source_node_id').references(() => kgNodes.id, { onDelete: 'cascade' }).notNull(),
+  targetNodeId: uuid('target_node_id').references(() => kgNodes.id, { onDelete: 'cascade' }).notNull(),
+  relationType: varchar('relation_type', { length: 100 }).notNull(),
+  weight: doublePrecision('weight').default(1.0),
+  contextText: text('context_text'),
+  sourceDocumentId: uuid('source_document_id').references(() => documents.id, { onDelete: 'set null' }),
+  extractionId: uuid('extraction_id').references(() => extractions.id, { onDelete: 'set null' }),
+  properties: jsonb('properties').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+

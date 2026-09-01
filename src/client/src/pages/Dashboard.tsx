@@ -10,6 +10,7 @@ import {
   ArrowRight,
   ShieldAlert,
   BookOpen,
+  Share2,
 } from 'lucide-react';
 import { fetchStats, fetchDocumentFlags } from '../api/client.js';
 
@@ -186,6 +187,27 @@ export default function Dashboard() {
               </div>
               <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2 text-xs font-semibold text-brand-600">
                 <span>View Feedback Log</span>
+              </div>
+            </Link>
+
+            <Link
+              to="/graph"
+              className="p-5 bg-white rounded-xl border border-slate-200 hover:border-brand-500 hover:shadow-md transition-all group flex flex-col justify-between md:col-span-2"
+            >
+              <div>
+                <h3 className="font-bold text-base text-slate-900 group-hover:text-brand-600 transition-colors flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Share2 className="w-4 h-4 text-brand-600" />
+                    5. Engineering Knowledge Graph & GraphRAG
+                  </span>
+                  <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-brand-600 group-hover:translate-x-1 transition-all" />
+                </h3>
+                <p className="text-sm text-slate-600 mt-2">
+                  Interactive multi-hop network connecting industry standards (API, ASME, NFPA, ISO), equipment classes, parameters, and governing clauses.
+                </p>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2 text-xs font-semibold text-brand-600">
+                <span>Explore Knowledge Graph</span>
               </div>
             </Link>
           </div>

@@ -568,3 +568,106 @@ export function groupRequirementsByDiscipline<T extends { requirement_code?: str
   return groups;
 }
 
+// ---------------------------------------------------------------------------
+// Knowledge Graph Schemas & Types
+// ---------------------------------------------------------------------------
+
+export const KGEntityTypeValues = [
+  'Document',
+  'Requirement',
+  'Standard',
+  'Equipment',
+  'Discipline',
+  'Parameter',
+  'Condition',
+  'Topic',
+] as const;
+export type KGEntityType = (typeof KGEntityTypeValues)[number];
+
+export const KGRelationTypeValues = [
+  'CONTAINS',
+  'REFERENCES_STANDARD',
+  'APPLIES_TO_EQUIPMENT',
+  'GOVERNED_BY',
+  'SPECIFIES_PARAMETER',
+  'OPERATES_UNDER',
+  'DEPENDS_ON',
+  'CONFLICTS_WITH',
+  'SUPERSEDES',
+  'INCLUDES_REQUIREMENT',
+] as const;
+export type KGRelationType = (typeof KGRelationTypeValues)[number];
+
+export const KGNodeSchema = z.object({
+  id: z.string().uuid(),
+  entity_type: z.enum(KGEntityTypeValues),
+  name: z.string(),
+  label: z.string(),
+  description: z.string().nullable().optional(),
+  discipline: z.string().nullable().optional(),
+  source_document_id: z.string().uuid().nullable().optional(),
+  extraction_id: z.string().uuid().nullable().optional(),
+  properties: z.record(z.any()).default({}),
+  degree_count: z.number().default(0),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+});
+export type KGNode = z.infer<typeof KGNodeSchema>;
+
+export const KGEdgeSchema = z.object({
+  id: z.string().uuid(),
+  source_node_id: z.string().uuid(),
+  target_node_id: z.string().uuid(),
+  relation_type: z.enum(KGRelationTypeValues),
+  weight: z.number().default(1.0),
+  context_text: z.string().nullable().optional(),
+  source_document_id: z.string().uuid().nullable().optional(),
+  extraction_id: z.string().uuid().nullable().optional(),
+  properties: z.record(z.any()).default({}),
+  created_at: z.string().optional(),
+});
+export type KGEdge = z.infer<typeof KGEdgeSchema>;
+
+export const KGGraphResponseSchema = z.object({
+  nodes: z.array(KGNodeSchema),
+  edges: z.array(KGEdgeSchema),
+  total_nodes: z.number(),
+  total_edges: z.number(),
+});
+export type KGGraphResponse = z.infer<typeof KGGraphResponseSchema>;
+
+export const KGStatsResponseSchema = z.object({
+  total_nodes: z.number(),
+  total_edges: z.number(),
+  node_types: z.record(z.number()),
+  top_standards: z.array(z.object({ name: z.string(), count: z.number() })),
+  top_equipment: z.array(z.object({ name: z.string(), count: z.number() })),
+  top_disciplines: z.array(z.object({ name: z.string(), count: z.number() })),
+  density: z.number(),
+});
+export type KGStatsResponse = z.infer<typeof KGStatsResponseSchema>;
+
+export const GraphRAGQueryInputSchema = z.object({
+  query: z.string().min(1),
+  max_hops: z.number().min(1).max(3).default(2),
+  top_k_seeds: z.number().min(1).max(10).default(5),
+  disciplines: z.array(z.string()).optional(),
+});
+export type GraphRAGQueryInput = z.infer<typeof GraphRAGQueryInputSchema>;
+
+export const GraphRAGQueryResponseSchema = z.object({
+  query: z.string(),
+  summary: z.string(),
+  seed_nodes: z.array(KGNodeSchema),
+  subgraph: z.object({
+    nodes: z.array(KGNodeSchema),
+    edges: z.array(KGEdgeSchema),
+  }),
+  connected_standards: z.array(z.string()),
+  connected_equipment: z.array(z.string()),
+  governing_disciplines: z.array(z.string()),
+  token_usage: StageTokenUsageSchema.optional(),
+});
+export type GraphRAGQueryResponse = z.infer<typeof GraphRAGQueryResponseSchema>;
+
+

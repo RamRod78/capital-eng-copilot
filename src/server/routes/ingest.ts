@@ -4,6 +4,7 @@ import { db, pool } from '../db/index.js';
 import { documents, extractions } from '../db/schema.js';
 import { extractRequirementsFromText, getEmbedding } from '../services/gemini.js';
 import { parseUploadedFileBuffer } from '../services/parsers.js';
+import { ingestExtractionToGraph } from '../services/kg_extractor.js';
 import {
   getNextRequirementSequences,
   getNextRequirementCodesMap,
@@ -209,6 +210,18 @@ ingestRouter.post('/save', async (c) => {
       }
 
       storedCount++;
+    }
+
+    // 3. Incrementally update Knowledge Graph from newly extracted items
+    try {
+      await ingestExtractionToGraph(
+        doc.id,
+        sanitizedItems,
+        documentTitle || 'Engineering Specification',
+        ownerSme || 'Engineering Lead'
+      );
+    } catch (kgErr) {
+      console.warn('Knowledge Graph ingestion warning:', kgErr);
     }
 
     return c.json({

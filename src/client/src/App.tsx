@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   BookOpen,
   Files,
+  Share2,
 } from 'lucide-react';
 import { fetchStats } from './api/client.js';
 
@@ -27,6 +28,7 @@ import ProjectScoping from './pages/ProjectScoping.js';
 import LessonsLearned from './pages/LessonsLearned.js';
 import KnowledgeSearch from './pages/KnowledgeSearch.js';
 import DocumentSearch from './pages/DocumentSearch.js';
+import KnowledgeGraph from './pages/KnowledgeGraph.js';
 import Admin from './pages/Admin.js';
 import AboutCDDE from './pages/AboutCDDE.js';
 
@@ -204,6 +206,20 @@ export default function App() {
           </NavLink>
 
           <NavLink
+            to="/graph"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                isActive
+                  ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
+                  : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+              }`
+            }
+          >
+            <Share2 className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>7. Knowledge Graph</span>
+          </NavLink>
+
+          <NavLink
             to="/about"
             className={({ isActive }) =>
               `flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
@@ -250,6 +266,7 @@ export default function App() {
           <Route path="/lessons" element={<LessonsLearned />} />
           <Route path="/search" element={<KnowledgeSearch />} />
           <Route path="/documents" element={<DocumentSearch />} />
+          <Route path="/graph" element={<KnowledgeGraph />} />
           <Route path="/about" element={<AboutCDDE />} />
           <Route path="/admin" element={<Admin />} />
         </Routes>

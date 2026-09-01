@@ -15,6 +15,12 @@ import {
   DocumentRecord,
   DocumentSummaryItem,
   DocumentListResponse,
+  KGNode,
+  KGEdge,
+  KGGraphResponse,
+  KGStatsResponse,
+  GraphRAGQueryInput,
+  GraphRAGQueryResponse,
 } from '@shared/schemas';
 
 const API_BASE = '/api';
@@ -434,5 +440,75 @@ export async function fetchDocumentRequirements(
   const res = await fetch(`${API_BASE}/documents/${documentId}/requirements?${query.toString()}`);
   return parseResponseJson(res, 'Failed to fetch document requirements');
 }
+
+// ---------------------------------------------------------------------------
+// Knowledge Graph API Endpoints
+// ---------------------------------------------------------------------------
+
+export async function fetchKnowledgeGraph(params?: {
+  entityType?: string;
+  discipline?: string;
+  keyword?: string;
+  minWeight?: number;
+  limit?: number;
+  documentId?: string;
+}): Promise<KGGraphResponse> {
+  const query = new URLSearchParams();
+  if (params?.entityType && params.entityType !== 'All') query.set('entityType', params.entityType);
+  if (params?.discipline && params.discipline !== 'All') query.set('discipline', params.discipline);
+  if (params?.keyword) query.set('keyword', params.keyword);
+  if (params?.minWeight !== undefined) query.set('minWeight', params.minWeight.toString());
+  if (params?.limit !== undefined) query.set('limit', params.limit.toString());
+  if (params?.documentId) query.set('documentId', params.documentId);
+
+  const res = await fetch(`${API_BASE}/kg/graph?${query.toString()}`);
+  return parseResponseJson(res, 'Failed to fetch knowledge graph');
+}
+
+export async function fetchKGNodeDetails(id: string): Promise<{
+  node: KGNode & {
+    source_document_title?: string;
+    source_document_number?: string;
+    requirement_code?: string;
+    requirement_text?: string;
+    extraction_status?: string;
+  };
+  connectedEdges: any[];
+}> {
+  const res = await fetch(`${API_BASE}/kg/nodes/${id}`);
+  return parseResponseJson(res, 'Failed to fetch node details');
+}
+
+export async function fetchKGStats(): Promise<KGStatsResponse> {
+  const res = await fetch(`${API_BASE}/kg/stats`);
+  return parseResponseJson(res, 'Failed to fetch knowledge graph stats');
+}
+
+export async function queryGraphRAG(input: GraphRAGQueryInput): Promise<GraphRAGQueryResponse> {
+  const res = await fetch(`${API_BASE}/kg/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseResponseJson(res, 'GraphRAG query failed');
+}
+
+export async function backfillKnowledgeGraph(): Promise<{
+  success: boolean;
+  message: string;
+  result: { documentsProcessed: number; totalNodes: number; totalEdges: number };
+}> {
+  const res = await fetch(`${API_BASE}/kg/backfill`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  return parseResponseJson(res, 'Backfill failed');
+}
+
+export async function exportKnowledgeGraph(): Promise<any> {
+  const res = await fetch(`${API_BASE}/kg/export`);
+  return parseResponseJson(res, 'Export failed');
+}
+
 
 

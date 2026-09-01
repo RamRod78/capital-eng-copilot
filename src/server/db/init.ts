@@ -112,9 +112,47 @@ export async function initDatabase(retries = 5, delayMs = 3000): Promise<void> {
               resolved_at TIMESTAMP WITH TIME ZONE
           );
 
+          CREATE TABLE IF NOT EXISTS kg_nodes (
+              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+              entity_type VARCHAR(50) NOT NULL,
+              name VARCHAR(255) NOT NULL,
+              label VARCHAR(255) NOT NULL,
+              description TEXT,
+              discipline VARCHAR(100),
+              source_document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+              extraction_id UUID REFERENCES extractions(id) ON DELETE SET NULL,
+              properties JSONB DEFAULT '{}'::jsonb,
+              embedding vector(768),
+              degree_count INTEGER DEFAULT 0,
+              created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+          );
+
+          CREATE TABLE IF NOT EXISTS kg_edges (
+              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+              source_node_id UUID REFERENCES kg_nodes(id) ON DELETE CASCADE NOT NULL,
+              target_node_id UUID REFERENCES kg_nodes(id) ON DELETE CASCADE NOT NULL,
+              relation_type VARCHAR(100) NOT NULL,
+              weight FLOAT DEFAULT 1.0,
+              context_text TEXT,
+              source_document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+              extraction_id UUID REFERENCES extractions(id) ON DELETE SET NULL,
+              properties JSONB DEFAULT '{}'::jsonb,
+              created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+          );
+
           CREATE INDEX IF NOT EXISTS idx_requirement_embeddings_hnsw 
           ON requirement_embeddings 
           USING hnsw (embedding vector_cosine_ops);
+
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_kg_nodes_type_name ON kg_nodes (entity_type, lower(name));
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_kg_edges_unique ON kg_edges (source_node_id, target_node_id, relation_type);
+          CREATE INDEX IF NOT EXISTS idx_kg_nodes_embedding ON kg_nodes USING hnsw (embedding vector_cosine_ops);
+          CREATE INDEX IF NOT EXISTS idx_kg_nodes_discipline ON kg_nodes(discipline);
+          CREATE INDEX IF NOT EXISTS idx_kg_nodes_entity_type ON kg_nodes(entity_type);
+          CREATE INDEX IF NOT EXISTS idx_kg_edges_source ON kg_edges(source_node_id);
+          CREATE INDEX IF NOT EXISTS idx_kg_edges_target ON kg_edges(target_node_id);
+          CREATE INDEX IF NOT EXISTS idx_kg_edges_relation ON kg_edges(relation_type);
 
           CREATE INDEX IF NOT EXISTS idx_extractions_document_id ON extractions(document_id);
           CREATE INDEX IF NOT EXISTS idx_extractions_status ON extractions(status);
@@ -124,7 +162,7 @@ export async function initDatabase(retries = 5, delayMs = 3000): Promise<void> {
           CREATE INDEX IF NOT EXISTS idx_scoping_items_scope_id ON scoping_items(project_scope_id);
           CREATE INDEX IF NOT EXISTS idx_doc_flags_resolved ON document_revision_flags(is_resolved);
         `);
-        console.log('✅ PostgreSQL database schema verified and initialized.');
+        console.log('✅ PostgreSQL database schema verified and initialized (including Knowledge Graph).');
         return;
       } finally {
         client.release();
