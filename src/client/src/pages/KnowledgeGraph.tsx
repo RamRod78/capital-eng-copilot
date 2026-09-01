@@ -153,9 +153,117 @@ export default function KnowledgeGraph() {
     },
   });
 
-  // Simulation Data Preparation
+  // Simulation Data & Temperature (Alpha) Control
   const simNodes = useRef<SimulationNode[]>([]);
   const simEdges = useRef<SimulationEdge[]>([]);
+  const alphaRef = useRef<number>(1.0);
+
+  const reheat = useCallback((target = 0.5) => {
+    alphaRef.current = Math.max(alphaRef.current, target);
+  }, []);
+
+  // Step physics simulation by a given alpha factor
+  const stepPhysics = (alpha: number, width: number, height: number) => {
+    const nodes = simNodes.current;
+    const edges = simEdges.current;
+    if (nodes.length === 0) return;
+
+    const kCenter = 0.015 * alpha;
+    const kRepulsion = 750 * alpha;
+    const kSpring = 0.05 * alpha;
+    const damping = 0.78; // strong damping for steady relaxation
+
+    // 1. Center gravity (gently centers the graph)
+    const cx = width / 2;
+    const cy = height / 2;
+    for (const n of nodes) {
+      if (n.fx != null && n.fy != null) continue;
+      n.vx += (cx - n.x) * kCenter;
+      n.vy += (cy - n.y) * kCenter;
+    }
+
+    // 2. Node repulsion (all pairs with soft distance cutoff)
+    for (let i = 0; i < nodes.length; i++) {
+      const n1 = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const n2 = nodes[j];
+        const dx = n2.x - n1.x;
+        const dy = n2.y - n1.y;
+        const distSq = dx * dx + dy * dy || 1;
+        const dist = Math.sqrt(distSq);
+        const minDist = n1.radius + n2.radius + 14;
+
+        if (dist < 320) {
+          const force = (kRepulsion * (n1.radius + n2.radius)) / (distSq + 60);
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+
+          if (n1.fx == null) {
+            n1.vx -= fx;
+            n1.vy -= fy;
+          }
+          if (n2.fx == null) {
+            n2.vx += fx;
+            n2.vy += fy;
+          }
+        }
+
+        // Soft anti-overlap force (gradual push, no sudden teleportation)
+        if (dist < minDist) {
+          const overlap = minDist - dist;
+          const pushForce = overlap * 0.12 * alpha;
+          const px = (dx / dist) * pushForce;
+          const py = (dy / dist) * pushForce;
+          if (n1.fx == null) {
+            n1.vx -= px;
+            n1.vy -= py;
+          }
+          if (n2.fx == null) {
+            n2.vx += px;
+            n2.vy += py;
+          }
+        }
+      }
+    }
+
+    // 3. Edge Springs
+    for (const e of edges) {
+      const dx = e.target.x - e.source.x;
+      const dy = e.target.y - e.source.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const desiredDist = 80 + (e.source.radius + e.target.radius);
+      const springForce = (dist - desiredDist) * kSpring;
+
+      const fx = (dx / dist) * springForce;
+      const fy = (dy / dist) * springForce;
+
+      if (e.source.fx == null) {
+        e.source.vx += fx;
+        e.source.vy += fy;
+      }
+      if (e.target.fx == null) {
+        e.target.vx -= fx;
+        e.target.vy -= fy;
+      }
+    }
+
+    // 4. Position updates & velocity cutoff
+    for (const n of nodes) {
+      if (n.fx != null && n.fy != null) {
+        n.x = n.fx;
+        n.y = n.fy;
+        n.vx = 0;
+        n.vy = 0;
+      } else {
+        n.vx *= damping;
+        n.vy *= damping;
+        if (Math.abs(n.vx) < 0.005) n.vx = 0;
+        if (Math.abs(n.vy) < 0.005) n.vy = 0;
+        n.x += n.vx;
+        n.y += n.vy;
+      }
+    }
+  };
 
   useEffect(() => {
     if (!graphData?.nodes) return;
@@ -173,11 +281,15 @@ export default function KnowledgeGraph() {
       const degree = node.degree_count || 1;
       const radius = Math.max(14, Math.min(36, 12 + Math.sqrt(degree) * 5));
 
+      // Circular layout seed if new
+      const angle = (i / Math.max(1, graphData.nodes.length)) * 2 * Math.PI;
+      const r = 120 + Math.random() * 80;
+
       return {
         ...node,
         radius,
-        x: prev ? prev.x : width / 2 + (Math.random() - 0.5) * (width * 0.7),
-        y: prev ? prev.y : height / 2 + (Math.random() - 0.5) * (height * 0.7),
+        x: prev ? prev.x : width / 2 + Math.cos(angle) * r,
+        y: prev ? prev.y : height / 2 + Math.sin(angle) * r,
         vx: prev ? prev.vx : 0,
         vy: prev ? prev.vy : 0,
       };
@@ -203,6 +315,14 @@ export default function KnowledgeGraph() {
 
     simNodes.current = newSimNodes;
     simEdges.current = newSimEdges;
+
+    // Run 50 warm-up physics ticks in memory so initial layout is already clean & settled
+    for (let t = 0; t < 50; t++) {
+      stepPhysics(1.0 - t * 0.015, width, height);
+    }
+
+    // Set remaining cooling alpha
+    alphaRef.current = 0.6;
   }, [graphData]);
 
   // Force Simulation & Animation Loop
@@ -222,101 +342,12 @@ export default function KnowledgeGraph() {
         canvas.height = height;
       }
 
-      // Physics step (if not paused)
-      if (!isPaused) {
-        const nodes = simNodes.current;
-        const edges = simEdges.current;
-        const kCenter = 0.008;
-        const kRepulsion = 1200;
-        const kSpring = 0.04;
-        const damping = 0.88;
-
-        // 1. Center gravity
-        const cx = width / 2;
-        const cy = height / 2;
-        for (const n of nodes) {
-          if (n.fx != null && n.fy != null) continue;
-          n.vx += (cx - n.x) * kCenter;
-          n.vy += (cy - n.y) * kCenter;
-        }
-
-        // 2. Node repulsion (all pairs with spatial cutoff)
-        for (let i = 0; i < nodes.length; i++) {
-          const n1 = nodes[i];
-          for (let j = i + 1; j < nodes.length; j++) {
-            const n2 = nodes[j];
-            const dx = n2.x - n1.x;
-            const dy = n2.y - n1.y;
-            const distSq = dx * dx + dy * dy || 1;
-            const dist = Math.sqrt(distSq);
-            const minDist = n1.radius + n2.radius + 15;
-
-            if (dist < 400) {
-              const force = (kRepulsion * (n1.radius + n2.radius)) / (distSq + 100);
-              const fx = (dx / dist) * force;
-              const fy = (dy / dist) * force;
-
-              if (n1.fx == null) {
-                n1.vx -= fx;
-                n1.vy -= fy;
-              }
-              if (n2.fx == null) {
-                n2.vx += fx;
-                n2.vy += fy;
-              }
-            }
-
-            // Direct collision push
-            if (dist < minDist) {
-              const overlap = minDist - dist;
-              const pushX = (dx / dist) * overlap * 0.5;
-              const pushY = (dy / dist) * overlap * 0.5;
-              if (n1.fx == null) {
-                n1.x -= pushX;
-                n1.y -= pushY;
-              }
-              if (n2.fx == null) {
-                n2.x += pushX;
-                n2.y += pushY;
-              }
-            }
-          }
-        }
-
-        // 3. Edge Springs
-        for (const e of edges) {
-          const dx = e.target.x - e.source.x;
-          const dy = e.target.y - e.source.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const desiredDist = 110 + (e.source.radius + e.target.radius);
-          const springForce = (dist - desiredDist) * kSpring;
-
-          const fx = (dx / dist) * springForce;
-          const fy = (dy / dist) * springForce;
-
-          if (e.source.fx == null) {
-            e.source.vx += fx;
-            e.source.vy += fy;
-          }
-          if (e.target.fx == null) {
-            e.target.vx -= fx;
-            e.target.vy -= fy;
-          }
-        }
-
-        // 4. Update Positions
-        for (const n of nodes) {
-          if (n.fx != null && n.fy != null) {
-            n.x = n.fx;
-            n.y = n.fy;
-            n.vx = 0;
-            n.vy = 0;
-          } else {
-            n.vx *= damping;
-            n.vy *= damping;
-            n.x += n.vx;
-            n.y += n.vy;
-          }
+      // Physics step (only runs while alpha > 0.002 and not paused)
+      if (!isPaused && alphaRef.current > 0.002) {
+        stepPhysics(alphaRef.current, width, height);
+        alphaRef.current *= 0.982; // graceful cooling
+        if (alphaRef.current <= 0.002) {
+          alphaRef.current = 0; // completely stop and rest
         }
       }
 
@@ -490,6 +521,7 @@ export default function KnowledgeGraph() {
       draggedNodeRef.current.fy = y;
       draggedNodeRef.current.x = x;
       draggedNodeRef.current.y = y;
+      reheat(0.3); // gently wake up adjacent nodes while dragging
     } else if (isDraggingCanvasRef.current) {
       transformRef.current.x = e.clientX - dragStartRef.current.x;
       transformRef.current.y = e.clientY - dragStartRef.current.y;
@@ -507,6 +539,7 @@ export default function KnowledgeGraph() {
       draggedNodeRef.current.fx = null;
       draggedNodeRef.current.fy = null;
       draggedNodeRef.current = null;
+      reheat(0.2);
     }
     isDraggingCanvasRef.current = false;
   };
@@ -540,6 +573,7 @@ export default function KnowledgeGraph() {
   const handleZoom = (direction: 'in' | 'out' | 'reset') => {
     if (direction === 'reset') {
       transformRef.current = { x: 0, y: 0, k: 1 };
+      reheat(0.4);
     } else {
       const factor = direction === 'in' ? 1.2 : 0.8;
       const canvas = canvasRef.current;
@@ -766,7 +800,10 @@ export default function KnowledgeGraph() {
             {/* Canvas Action Controls */}
             <div className="flex items-center gap-1.5 border-l border-slate-200 pl-3">
               <button
-                onClick={() => setIsPaused(!isPaused)}
+                onClick={() => {
+                  if (isPaused) reheat(0.6);
+                  setIsPaused(!isPaused);
+                }}
                 className={`p-2 rounded-lg text-xs font-bold border ${
                   isPaused
                     ? 'bg-amber-50 text-amber-700 border-amber-300'

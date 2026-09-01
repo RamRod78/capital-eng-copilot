@@ -29,6 +29,8 @@ import {
   Sliders,
   Download,
   BrainCircuit,
+  Share2,
+  Network,
 } from 'lucide-react';
 
 interface PhaseDetail {
@@ -189,6 +191,41 @@ const PHASES: PhaseDetail[] = [
   {
     id: 'phase-5',
     stepNumber: '05',
+    title: 'Dynamic Knowledge Graph & Multi-Hop Entity Resolution',
+    shortDesc: 'Canonical entity normalization, semantic triple extraction, and relational multi-hop graph growth.',
+    icon: Share2,
+    badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    accentBg: 'bg-indigo-500/10',
+    borderColor: 'border-indigo-500/30',
+    modelOrTech: 'Canonical Normalizer + Semantic Triple Extractor + GraphRAG Traversal Engine',
+    inputs: [
+      'Structured requirement clauses & governing disciplines',
+      'Industry standard citations (API, ASME, NFPA, ISO, PIP, IEEE, NACE)',
+      'Equipment classes, metallurgy specs, and operating conditions',
+    ],
+    outputs: [
+      'Canonical entity nodes (kg_nodes) deduplicated across documents with degree count caching',
+      'Weighted relational edges (kg_edges: REFERENCES_STANDARD, APPLIES_TO_EQUIPMENT, GOVERNED_BY)',
+      'Real-time interactive 2D physics network visualizer with alpha annealing',
+      'GraphRAG multi-hop context subgraphs synthesizing connected dependencies for future AI initiatives',
+    ],
+    deepDive: {
+      overview:
+        'With every extracted document, CDDE dynamically expands an interconnected Engineering Knowledge Graph. Rather than storing isolated text fragments, CDDE canonicalizes standard codes (e.g. normalizing variations of API 610 or ASME B31.3), extracts relational triples linking equipment, requirements, and parameters, and incrementally builds an overarching semantic network that connects knowledge across all engineering disciplines.',
+      keyMechanisms: [
+        'Canonical standard code normalizer with regex patterns for API, ASME Section II/VIII/IX/B31, NFPA, ISO, and NACE.',
+        'Semantic triple extraction linking clauses to equipment classes, metallurgy (e.g., 316L, Duplex), and operating conditions (e.g., NACE MR0175 sour service).',
+        'Automatic deduplication via unique (entity_type, lower(name)) constraints and dynamic edge weight incrementation.',
+        'GraphRAG AI retrieval combining pgvector seed lookup with recursive CTE neighborhood traversal and Gemini technical synthesis.',
+        'Stabilized 2D canvas physics engine featuring alpha temperature annealing and interactive node inspection.',
+      ],
+      businessValue:
+        'Breaks down discipline silos and transforms fragmented documentation into a comprehensive, living engineering ontology that powers GraphRAG and future AI automation.',
+    },
+  },
+  {
+    id: 'phase-6',
+    stepNumber: '06',
     title: '3-Step Project Scoping, RFP Wizard & Closed-Loop Governance',
     shortDesc: 'Project configuration, AI specification matching, SME matrix validation, and Lessons Learned.',
     icon: Target,
@@ -260,6 +297,10 @@ export default function AboutCDDE() {
             <span className="px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-700 text-slate-200 flex items-center gap-1.5 font-medium">
               <Sparkles className="w-3.5 h-3.5 text-brand-400" />
               Gemini 3.7 Flash + Thinking Budget
+            </span>
+            <span className="px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-700 text-slate-200 flex items-center gap-1.5 font-medium">
+              <Share2 className="w-3.5 h-3.5 text-indigo-400" />
+              Engineering Knowledge Graph & GraphRAG
             </span>
             <span className="px-3 py-1.5 rounded-lg bg-slate-800/90 border border-slate-700 text-slate-200 flex items-center gap-1.5 font-medium">
               <Database className="w-3.5 h-3.5 text-blue-400" />
@@ -364,7 +405,7 @@ export default function AboutCDDE() {
               <div>
                 <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                   <Workflow className="w-5 h-5 text-brand-600" />
-                  Interactive 5-Phase Data Flow Architecture
+                  Interactive 6-Phase Data Flow Architecture
                 </h2>
                 <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
                   Click any stage below to inspect the underlying AI models, chunking logic, payloads, and business value.
@@ -376,7 +417,7 @@ export default function AboutCDDE() {
             </div>
 
             {/* Visual Flow Stages */}
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 relative">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 relative">
               {PHASES.map((phase) => {
                 const Icon = phase.icon;
                 const isSelected = activePhase === phase.id;
@@ -611,6 +652,26 @@ export default function AboutCDDE() {
                     embedding-001 &rarr; Full-text SQL ILIKE search
                   </td>
                 </tr>
+
+                <tr className="hover:bg-slate-50">
+                  <td className="p-3.5 font-bold text-slate-900">
+                    Stage 5: Dynamic Knowledge Graph & GraphRAG Synthesis
+                  </td>
+                  <td className="p-3.5">
+                    <span className="font-mono bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-semibold">
+                      Gemini 3.7 Flash + Multi-Hop GraphRAG
+                    </span>
+                  </td>
+                  <td className="p-3.5">
+                    Canonical entity normalization, semantic triple extraction, recursive CTE neighborhood traversal, and cross-standard synthesis.
+                  </td>
+                  <td className="p-3.5 font-mono text-[11px]">
+                    max_hops: 2, top_k_seeds: 5, GraphRAG Schema
+                  </td>
+                  <td className="p-3.5 text-slate-500">
+                    Rule-Based Triple Extractor &rarr; Vector Seed Search
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -751,10 +812,24 @@ export default function AboutCDDE() {
                 <span>Semantic Knowledge Search</span>
               </div>
               <p className="text-slate-600 leading-relaxed">
-                Sub-second natural language query search powered by pgvector 768-dim embeddings with discipline filtering.
+                Sub-second natural language query search powered by pgvector 768-dim embeddings with discipline filtering and GraphRAG context summaries.
               </p>
               <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
                 Route: <span className="text-brand-600">/search</span>
+              </div>
+            </div>
+
+            {/* Module: Knowledge Graph */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-slate-900">
+                <Share2 className="w-4 h-4 text-indigo-600" />
+                <span>Engineering Knowledge Graph</span>
+              </div>
+              <p className="text-slate-600 leading-relaxed">
+                Interactive 2D force network with physics annealing, slide-over entity inspector, GraphRAG AI assistant, and hubs leaderboard.
+              </p>
+              <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
+                Route: <span className="text-brand-600">/graph</span>
               </div>
             </div>
 
@@ -765,7 +840,7 @@ export default function AboutCDDE() {
                 <span>Database Administration</span>
               </div>
               <p className="text-slate-600 leading-relaxed">
-                Inspect table record counts, purge test records by category, and trigger vector embedding re-indexing.
+                Inspect table record counts across documents, requirements, and knowledge graph entities, purge test records by category, and trigger re-indexing.
               </p>
               <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
                 Route: <span className="text-brand-600">/admin</span>
@@ -779,7 +854,7 @@ export default function AboutCDDE() {
                 <span>About CDDE Architecture</span>
               </div>
               <p className="text-slate-600 leading-relaxed">
-                Interactive 5-phase data flow visualizer, model matrix, and database schema documentation.
+                Interactive 6-phase data flow visualizer, model matrix, database & graph schema, and strategic engineering ROI documentation.
               </p>
               <div className="text-[11px] font-mono text-slate-500 pt-1 border-t border-slate-200">
                 Route: <span className="text-brand-600">/about</span>
@@ -795,15 +870,15 @@ export default function AboutCDDE() {
           <div>
             <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <Database className="w-5 h-5 text-blue-600" />
-              Unified Relational & Vector Data Architecture
+              Unified Relational, Vector & Knowledge Graph Schema
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              Built on PostgreSQL with Drizzle ORM and pgvector, providing strict relational integrity alongside
-              high-dimensional dense semantic search.
+              Built on PostgreSQL with Drizzle ORM and pgvector, providing strict relational integrity,
+              high-dimensional dense semantic search, and an interconnected entity graph.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
             <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
               <div className="flex items-center justify-between font-mono font-bold text-slate-900">
                 <span>documents</span>
@@ -828,16 +903,15 @@ export default function AboutCDDE() {
                 <span className="text-[10px] bg-brand-100 text-brand-800 px-2 py-0.5 rounded">Core Table</span>
               </div>
               <p className="text-slate-600 text-[11px]">
-                Structured requirement clauses with discipline tags, compliance tiers, confidence scores, and review
-                states.
+                Structured requirement clauses with discipline tags, compliance tiers, confidence scores, and review states.
               </p>
               <div className="font-mono text-[10px] text-slate-500 bg-white p-2 rounded border border-slate-200 space-y-0.5">
                 <div>id: uuid (PK)</div>
                 <div>document_id: uuid (FK &rarr; documents)</div>
                 <div>requirement_code: REQ-DISC-00000001</div>
-                <div>compliance_level: Mandatory/Recommended/Guideline</div>
+                <div>compliance_level: Mandatory/Rec/Guide</div>
                 <div>confidence_score: doublePrecision (0.0-1.0)</div>
-                <div>status: Pending Review / Approved / Rejected</div>
+                <div>status: Pending / Approved / Rejected</div>
               </div>
             </div>
 
@@ -854,6 +928,42 @@ export default function AboutCDDE() {
                 <div>extraction_id: uuid (FK &rarr; extractions)</div>
                 <div>chunk_text: text</div>
                 <div>embedding: vector(768)</div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between font-mono font-bold text-indigo-700">
+                <span>kg_nodes</span>
+                <span className="text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">Knowledge Graph</span>
+              </div>
+              <p className="text-slate-600 text-[11px]">
+                Canonical engineering entities (Standards, Equipment, Parameters, Disciplines) deduplicated across documents.
+              </p>
+              <div className="font-mono text-[10px] text-slate-500 bg-white p-2 rounded border border-slate-200 space-y-0.5">
+                <div>id: uuid (PK)</div>
+                <div>entity_type: Standard / Equipment / ...</div>
+                <div>name: varchar(255) (Canonical)</div>
+                <div>label: text, discipline: varchar(50)</div>
+                <div>degree_count: integer, properties: jsonb</div>
+                <div>embedding: vector(768)</div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between font-mono font-bold text-indigo-700">
+                <span>kg_edges</span>
+                <span className="text-[10px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded">Knowledge Graph</span>
+              </div>
+              <p className="text-slate-600 text-[11px]">
+                Weighted directed relationships linking standards, equipment classes, and parameters with context excerpts.
+              </p>
+              <div className="font-mono text-[10px] text-slate-500 bg-white p-2 rounded border border-slate-200 space-y-0.5">
+                <div>id: uuid (PK)</div>
+                <div>source_node_id: uuid (FK &rarr; kg_nodes)</div>
+                <div>target_node_id: uuid (FK &rarr; kg_nodes)</div>
+                <div>relation_type: REFERENCES / APPLIES_TO</div>
+                <div>weight: doublePrecision (Frequency)</div>
+                <div>context_text: text, properties: jsonb</div>
               </div>
             </div>
 
@@ -884,7 +994,7 @@ export default function AboutCDDE() {
               </p>
               <div className="font-mono text-[10px] text-slate-500 bg-white p-2 rounded border border-slate-200 space-y-0.5">
                 <div>id: uuid (PK)</div>
-                <div>project_scope_id: uuid (FK &rarr; project_scopes)</div>
+                <div>project_scope_id: uuid (FK &rarr; scopes)</div>
                 <div>extraction_id: uuid (FK &rarr; extractions)</div>
                 <div>relevance_score: doublePrecision</div>
                 <div>is_selected: boolean</div>
@@ -920,12 +1030,11 @@ export default function AboutCDDE() {
               Strategic Value & Engineering ROI
             </h2>
             <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              How Capital Design Decision Engine accelerates EPC project execution and protects against multi-million
-              dollar design omissions.
+              How Capital Design Decision Engine accelerates EPC project execution, breaks down discipline silos, and protects against multi-million dollar design omissions.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             <div className="p-5 rounded-xl bg-gradient-to-br from-slate-50 to-emerald-50/40 border border-emerald-200/80 space-y-3">
               <div className="p-2.5 bg-emerald-600 text-white rounded-lg w-fit">
                 <Zap className="w-5 h-5" />
@@ -945,6 +1054,16 @@ export default function AboutCDDE() {
               <p className="text-xs text-slate-600 leading-relaxed">
                 Automated classification tags every strict requirement (using ASME, API, NEC, and internal standards).
                 Low-confidence items are gated for SME review to prevent contract omissions.
+              </p>
+            </div>
+
+            <div className="p-5 rounded-xl bg-gradient-to-br from-slate-50 to-indigo-50/40 border border-indigo-200/80 space-y-3">
+              <div className="p-2.5 bg-indigo-600 text-white rounded-lg w-fit">
+                <Share2 className="w-5 h-5" />
+              </div>
+              <h3 className="font-extrabold text-base text-slate-900">Multi-Hop Knowledge Discovery & Future AI</h3>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Connects fragmented requirements across standards into a living engineering knowledge graph. Powers multi-hop GraphRAG reasoning and provides contextual grounding for all future AI automation.
               </p>
             </div>
 

@@ -119,6 +119,27 @@ adminRouter.post('/purge', async (c) => {
       return c.json({ success: true, message: 'Feedback lessons learned and revision flags purged.' });
     }
 
+    if (target === 'kg' || target === 'knowledge_graph') {
+      await client.query(`
+        TRUNCATE TABLE 
+          kg_edges, 
+          kg_nodes 
+        CASCADE;
+      `);
+      await client.query('COMMIT');
+      return c.json({ success: true, message: 'Knowledge Graph canonical nodes and relationship edges purged.' });
+    }
+
+    if (target === 'kg_edges') {
+      await client.query(`
+        TRUNCATE TABLE 
+          kg_edges 
+        CASCADE;
+      `);
+      await client.query('COMMIT');
+      return c.json({ success: true, message: 'Knowledge Graph relationship edges purged (canonical nodes preserved).' });
+    }
+
     await client.query('ROLLBACK');
     return c.json({ error: `Invalid purge target: "${target}"` }, 400);
   } catch (err: any) {

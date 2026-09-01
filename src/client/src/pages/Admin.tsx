@@ -17,10 +17,19 @@ import {
   RefreshCw,
   X,
   AlertOctagon,
+  Share2,
+  Network,
 } from 'lucide-react';
 import { fetchAdminCounts, purgeDatabaseRecords, reindexAdminEmbeddings } from '../api/client.js';
 
-type PurgeTarget = 'all' | 'extractions' | 'projects' | 'scoping_items' | 'feedback';
+type PurgeTarget =
+  | 'all'
+  | 'extractions'
+  | 'projects'
+  | 'scoping_items'
+  | 'feedback'
+  | 'kg'
+  | 'kg_edges';
 
 interface PurgeConfig {
   target: PurgeTarget;
@@ -34,15 +43,29 @@ const PURGE_OPTIONS: PurgeConfig[] = [
   {
     target: 'all',
     title: 'Purge Entire Database (Full Factory Reset)',
-    description: 'Permanently deletes all engineering documents, extractions, vector embeddings, project scopes, scoping items, lessons learned, and revision flags.',
-    affectedTables: ['documents', 'extractions', 'requirement_embeddings', 'project_scopes', 'scoping_items', 'feedback_lessons', 'document_revision_flags'],
+    description: 'Permanently deletes all engineering documents, extractions, vector embeddings, knowledge graph nodes, relationship edges, project scopes, scoping items, lessons learned, and revision flags.',
+    affectedTables: ['documents', 'extractions', 'requirement_embeddings', 'kg_nodes', 'kg_edges', 'project_scopes', 'scoping_items', 'feedback_lessons', 'document_revision_flags'],
     severity: 'critical',
   },
   {
     target: 'extractions',
     title: 'Purge Ingested Documents & Extractions',
-    description: 'Deletes all uploaded engineering standards, specifications, extracted requirements, and pgvector embeddings.',
-    affectedTables: ['documents', 'extractions', 'requirement_embeddings'],
+    description: 'Deletes all uploaded engineering standards, specifications, extracted requirements, pgvector embeddings, and linked Knowledge Graph nodes/edges.',
+    affectedTables: ['documents', 'extractions', 'requirement_embeddings', 'kg_nodes', 'kg_edges'],
+    severity: 'high',
+  },
+  {
+    target: 'kg',
+    title: 'Purge Knowledge Graph (Nodes & Edges)',
+    description: 'Deletes all extracted canonical entity nodes (standards, equipment, parameters) and multi-hop relationship edges. Ingested documents and extractions remain preserved for one-click re-generation / backfill.',
+    affectedTables: ['kg_nodes', 'kg_edges'],
+    severity: 'high',
+  },
+  {
+    target: 'kg_edges',
+    title: 'Purge KG Relationship Edges Only',
+    description: 'Clears multi-hop connection edges and relationship weights between nodes while retaining canonical entity node definitions.',
+    affectedTables: ['kg_edges'],
     severity: 'high',
   },
   {
@@ -106,6 +129,8 @@ export default function Admin() {
       setActivePurge(null);
       // Invalidate all query caches across the application
       queryClient.invalidateQueries({ queryKey: ['adminCounts'] });
+      queryClient.invalidateQueries({ queryKey: ['kgGraph'] });
+      queryClient.invalidateQueries({ queryKey: ['kgStats'] });
       queryClient.invalidateQueries({ queryKey: ['stats'] });
       queryClient.invalidateQueries({ queryKey: ['extractions'] });
       queryClient.invalidateQueries({ queryKey: ['scopes'] });
@@ -197,7 +222,7 @@ export default function Admin() {
           <Database className="w-5 h-5 text-brand-600" />
           Current Database Record Volumes
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
             <div className="p-3 bg-blue-50 text-blue-600 rounded-lg">
               <FileText className="w-6 h-6" />
@@ -230,6 +255,30 @@ export default function Admin() {
               <p className="text-xs font-semibold text-slate-500 uppercase">Vector Embeddings</p>
               <p className="text-2xl font-black text-slate-900">
                 {isLoading ? '...' : (counts?.requirement_embeddings ?? 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
+            <div className="p-3 bg-indigo-50 text-indigo-600 rounded-lg">
+              <Share2 className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase">KG Entities (Nodes)</p>
+              <p className="text-2xl font-black text-slate-900">
+                {isLoading ? '...' : (counts?.kg_nodes ?? 0).toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 hover:border-slate-300 transition-colors">
+            <div className="p-3 bg-indigo-50 text-indigo-600 rounded-lg">
+              <Network className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase">KG Relations (Edges)</p>
+              <p className="text-2xl font-black text-slate-900">
+                {isLoading ? '...' : (counts?.kg_edges ?? 0).toLocaleString()}
               </p>
             </div>
           </div>
